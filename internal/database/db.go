@@ -44,10 +44,14 @@ func Connect() {
 	log.Println("✅ Successfully connected to MySQL!")
 
 	// 3. Auto-Migrate
-	err = DB.AutoMigrate(&models.User{}, &models.Product{}, &models.Sale{}, &models.SaleItem{})
-	if err != nil {
-		log.Fatal("Migration failed:", err)
-	}
+	err = DB.AutoMigrate(
+		&models.User{},
+		&models.Product{},
+		&models.ComboComponent{},
+		&models.Sale{},
+		&models.SaleItem{},
+		&models.AuditLog{},
+	)
 
 	log.Println("✅ Database Schema Synced!")
 }
