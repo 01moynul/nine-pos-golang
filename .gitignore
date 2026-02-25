@@ -1,0 +1,23 @@
+# Security: Never commit environment variables
+.env
+
+# Local Editor History (VS Code extensions)
+.history/
+uploads
+web
+
+# Binaries/Executables
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+taptosell-golang
+main
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+# Vendor directory
+vendor/
