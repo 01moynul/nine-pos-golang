@@ -38,7 +38,14 @@ func main() {
 	r.POST("/login", handlers.Login)
 	r.Static("/uploads", "./uploads")
 
-	//r.POST("/register", handlers.Register) <-- DISABLED FOR SECURITY
+	// --- FEATURE FLAG: Admin Registration ---
+	// Only opens if we explicitly allow it in .env
+	if os.Getenv("ALLOW_REGISTRATION") == "true" {
+		r.POST("/register", handlers.Register)
+		log.Println("⚠️ WARNING: Registration route is OPEN. Disable this in production!")
+	} else {
+		log.Println("🔒 Registration route is safely DISABLED.")
+	}
 
 	// --- PROTECTED ROUTES ---
 	api := r.Group("/api")
