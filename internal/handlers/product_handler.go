@@ -9,6 +9,7 @@ import (
 
 	"go-pos-agent/internal/database"
 	"go-pos-agent/internal/models"
+	"go-pos-agent/internal/utils"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm/clause"
@@ -225,4 +226,41 @@ func UploadImage(c *gin.Context) {
 		"message": "File uploaded successfully",
 		"url":     fullURL,
 	})
+}
+
+// --- GET: Scan a barcode (Standard or Smart Scale) ---
+// This handles Rapid Hardware Integration (Task 1.2)
+func ScanProduct(c *gin.Context) {
+	// 1. Grab the scanned barcode string from the URL parameter
+	barcode := c.Param("barcode")
+
+	// 2. Pass the barcode through our new parsing engine
+	scaleData := utils.ParseEAN13(barcode)
+
+	var product models.Product
+
+	if scaleData.IsScaleBarcode {
+		// 3. SCALE ITEM DETECTED: Lookup the base product using the 5-digit ItemID.
+		// We assume your Deli/Meat base products are saved with their 5-digit SKU.
+		if err := database.DB.Where("sku = ?", scaleData.ItemID).First(&product).Error; err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Base scale product not found", "sku": scaleData.ItemID})
+			return
+		}
+
+		// 4. DYNAMIC OVERRIDE: Replace the database base price with the exact calculated price
+		// embedded in the physical barcode sticker so the cart charges the right amount.
+		product.Price = scaleData.CalculatedPrice
+
+	} else {
+		// 5. STANDARD ITEM DETECTED: Do a direct 1-to-1 lookup for the full 13 digits.
+		if err := database.DB.Where("sku = ?", barcode).First(&product).Error; err != nil {
+			// Returning a 404 is crucial here!
+			// In Task 1.3, the React frontend will use this exact 404 to auto-trigger the "Add Product" modal.
+			c.JSON(http.StatusNotFound, gin.H{"error": "Product not found", "sku": barcode})
+			return
+		}
+	}
+
+	// 6. Return the perfectly formatted product back to the frontend
+	c.JSON(http.StatusOK, product)
 }

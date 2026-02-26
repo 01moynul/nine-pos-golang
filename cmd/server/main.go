@@ -54,6 +54,7 @@ func main() {
 		// PUBLIC TO STAFF & ADMIN
 		api.GET("/products", handlers.GetProducts)
 		api.POST("/checkout", handlers.ProcessSale)
+		api.GET("/products/scan/:barcode", handlers.ScanProduct)
 
 		// ADMIN ONLY
 		admin := api.Group("/")
