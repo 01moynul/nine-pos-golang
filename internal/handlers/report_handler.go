@@ -155,24 +155,46 @@ func GetStockValuation(c *gin.Context) {
 }
 
 // --- GET: /api/reports/valuation/history ---
-// GetHistoricalValuation calculates inventory value based on the StockLedger at a specific past date
+// GetHistoricalValuation calculates the value of NEW stock received on a specific date, with optional time filtering
 func GetHistoricalValuation(c *gin.Context) {
-	// 1. Get the requested date from the URL (e.g., ?date=2026-02-27)
 	dateStr := c.Query("date")
 	if dateStr == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Date parameter is required (YYYY-MM-DD)"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Date parameter is required"})
 		return
 	}
 
-	// 2. Parse the date and set the clock to the very end of that day (23:59:59)
+	// 1. Parse the base date
 	targetDate, err := time.Parse("2006-01-02", dateStr)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid date format. Use YYYY-MM-DD"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid date format"})
 		return
 	}
+
+	// 2. Set default time window (entire day)
+	startOfDay := targetDate
 	endOfDay := targetDate.Add(24*time.Hour - time.Second)
 
-	// 3. Fetch all products so we know what to look for
+	// 3. --- NEW: Apply Time Filters if provided ---
+	startTimeStr := c.Query("startTime") // e.g., "09:00"
+	endTimeStr := c.Query("endTime")     // e.g., "10:00"
+
+	if startTimeStr != "" {
+		parsedStart, err := time.Parse("15:04", startTimeStr)
+		if err == nil {
+			// Combine the target date with the specific start time
+			startOfDay = time.Date(targetDate.Year(), targetDate.Month(), targetDate.Day(), parsedStart.Hour(), parsedStart.Minute(), 0, 0, targetDate.Location())
+		}
+	}
+
+	if endTimeStr != "" {
+		parsedEnd, err := time.Parse("15:04", endTimeStr)
+		if err == nil {
+			// Combine the target date with the specific end time (and add 59 seconds to include the whole minute)
+			endOfDay = time.Date(targetDate.Year(), targetDate.Month(), targetDate.Day(), parsedEnd.Hour(), parsedEnd.Minute(), 59, 0, targetDate.Location())
+		}
+	}
+	// ----------------------------------------------
+
 	var products []models.Product
 	if err := database.DB.Find(&products).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch inventory"})
@@ -182,30 +204,25 @@ func GetHistoricalValuation(c *gin.Context) {
 	var grandTotal float64
 	groupedMap := make(map[string]*CategoryGroup)
 
-	// 4. Loop through every product to find its historical stock
 	for _, p := range products {
-		var lastLedger models.StockLedger
+		var dailyLedgers []models.StockLedger
 
-		// THE TIME MACHINE: Find the single most recent ledger entry for this product that happened ON or BEFORE the target date.
-		err := database.DB.Where("product_id = ? AND created_at <= ?", p.ID, endOfDay).
-			Order("created_at desc").
-			First(&lastLedger).Error
+		// 4. Find all ledger entries for this product within our specific time window where stock went UP (+)
+		database.DB.Where(
+			"product_id = ? AND created_at >= ? AND created_at <= ? AND change_amount > 0",
+			p.ID, startOfDay, endOfDay,
+		).Find(&dailyLedgers)
 
-		historicalStock := 0
-		if err == nil {
-			// We found a ledger entry! This was the exact stock balance on that day.
-			historicalStock = lastLedger.Balance
-		} else {
-			// No ledger entries exist before this date. This means the item wasn't in the store yet (Stock = 0).
+		totalAddedToday := 0
+		for _, ledger := range dailyLedgers {
+			totalAddedToday += ledger.ChangeAmount
+		}
+
+		if totalAddedToday <= 0 {
 			continue
 		}
 
-		// If stock was 0 on that date, skip it to keep the report clean
-		if historicalStock <= 0 {
-			continue
-		}
-
-		// --- Apply the exact same grouping math as the live valuation ---
+		// --- Grouping and Math ---
 		catName := p.Category
 		if catName == "" {
 			catName = "Uncategorized"
@@ -219,11 +236,11 @@ func GetHistoricalValuation(c *gin.Context) {
 			}
 		}
 
-		itemTotal := float64(historicalStock) * p.CostPrice
+		itemTotal := float64(totalAddedToday) * p.CostPrice
 
 		valItem := ValuationItem{
 			Name:      p.Name,
-			Quantity:  historicalStock,
+			Quantity:  totalAddedToday,
 			CostPrice: p.CostPrice,
 			TotalCost: itemTotal,
 		}
@@ -233,7 +250,6 @@ func GetHistoricalValuation(c *gin.Context) {
 		grandTotal += itemTotal
 	}
 
-	// 5. Package and send to React
 	var response ValuationResponse
 	response.GrandTotal = grandTotal
 	for _, group := range groupedMap {

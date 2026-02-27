@@ -63,6 +63,7 @@ func Connect() {
 		&models.Sale{},
 		&models.SaleItem{},
 		&models.AuditLog{},
+		&models.StockLedger{},
 	)
 	if err != nil {
 		log.Fatal("❌ Failed to migrate database:", err)
