@@ -68,6 +68,8 @@ func main() {
 			admin.PUT("/products/:id", handlers.UpdateProduct)
 			admin.DELETE("/products/:id", handlers.DeleteProduct)
 			admin.GET("/reports", handlers.GetSalesReport)
+			// --- NEW: Stock Valuation Report ---
+			admin.GET("/reports/valuation", handlers.GetStockValuation)
 		}
 	}
 
