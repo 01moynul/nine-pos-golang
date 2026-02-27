@@ -3,8 +3,11 @@ package middleware
 import (
 	"net/http"
 	"strings"
+	"time" // Added for DRM clock checking
 
 	"go-pos-agent/internal/auth"
+	"go-pos-agent/internal/database" // Added to access the DB
+	"go-pos-agent/internal/models"   // Added to read the License schema
 
 	"github.com/gin-gonic/gin"
 )
@@ -55,6 +58,40 @@ func RequireRole(allowedRole string) gin.HandlerFunc {
 			c.Abort()
 			return
 		}
+		c.Next()
+	}
+}
+
+// CheckLicense enforces the Subscription DRM at the API layer.
+// It intercepts requests, checks the clock, and triggers Lockdown Mode if expired.
+func CheckLicense() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var license models.SystemLicense
+
+		// Fetch the active license from the local database
+		result := database.DB.Where("is_active = ?", true).First(&license)
+
+		// Condition A: No license exists in the system at all
+		if result.Error != nil {
+			c.JSON(http.StatusPaymentRequired, gin.H{
+				"error": "No valid system license found. System locked.",
+				"code":  "DRM_NO_LICENSE",
+			})
+			c.Abort()
+			return
+		}
+
+		// Condition B: The subscription has expired
+		if time.Now().After(license.ExpirationDate) {
+			c.JSON(http.StatusPaymentRequired, gin.H{
+				"error": "Subscription Expired. Lockdown Mode Initiated.",
+				"code":  "DRM_EXPIRED",
+			})
+			c.Abort()
+			return
+		}
+
+		// Condition C: License is valid, allow the request to proceed to the handler
 		c.Next()
 	}
 }

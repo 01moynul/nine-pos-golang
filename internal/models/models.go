@@ -81,3 +81,13 @@ type AuditLog struct {
 	Details   string    `json:"details"`
 	Timestamp time.Time `json:"timestamp"`
 }
+
+// SystemLicense - Required for Phase 6 DRM Engine
+type SystemLicense struct {
+	ID             uint      `gorm:"primaryKey" json:"id"`
+	LicenseKey     string    `gorm:"uniqueIndex;size:255" json:"license_key"` // Encrypted key
+	ExpirationDate time.Time `json:"expiration_date"`                         // The strict cutoff date
+	IsActive       bool      `json:"is_active"`                               // Toggle for manual overrides
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+}

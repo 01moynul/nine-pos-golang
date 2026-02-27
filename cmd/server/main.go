@@ -38,6 +38,10 @@ func main() {
 	r.POST("/login", handlers.Login)
 	r.Static("/uploads", "./uploads")
 
+	// 🚨 UNLOCKED ROUTE: System Activation must bypass the DRM!
+	r.GET("/api/system/status", handlers.GetSystemStatus)
+	r.POST("/api/system/activate", handlers.ActivateLicense)
+
 	// --- FEATURE FLAG: Admin Registration ---
 	// Only opens if we explicitly allow it in .env
 	if os.Getenv("ALLOW_REGISTRATION") == "true" {
@@ -49,6 +53,7 @@ func main() {
 
 	// --- PROTECTED ROUTES ---
 	api := r.Group("/api")
+	api.Use(middleware.CheckLicense())
 	api.Use(middleware.AuthMiddleware())
 	{
 		// PUBLIC TO STAFF & ADMIN
