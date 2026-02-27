@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"time"
 
 	"go-pos-agent/internal/database"
 	"go-pos-agent/internal/models"
@@ -150,5 +151,94 @@ func GetStockValuation(c *gin.Context) {
 	}
 
 	// 5. Send the structured data to the frontend
+	c.JSON(http.StatusOK, response)
+}
+
+// --- GET: /api/reports/valuation/history ---
+// GetHistoricalValuation calculates inventory value based on the StockLedger at a specific past date
+func GetHistoricalValuation(c *gin.Context) {
+	// 1. Get the requested date from the URL (e.g., ?date=2026-02-27)
+	dateStr := c.Query("date")
+	if dateStr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Date parameter is required (YYYY-MM-DD)"})
+		return
+	}
+
+	// 2. Parse the date and set the clock to the very end of that day (23:59:59)
+	targetDate, err := time.Parse("2006-01-02", dateStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid date format. Use YYYY-MM-DD"})
+		return
+	}
+	endOfDay := targetDate.Add(24*time.Hour - time.Second)
+
+	// 3. Fetch all products so we know what to look for
+	var products []models.Product
+	if err := database.DB.Find(&products).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch inventory"})
+		return
+	}
+
+	var grandTotal float64
+	groupedMap := make(map[string]*CategoryGroup)
+
+	// 4. Loop through every product to find its historical stock
+	for _, p := range products {
+		var lastLedger models.StockLedger
+
+		// THE TIME MACHINE: Find the single most recent ledger entry for this product that happened ON or BEFORE the target date.
+		err := database.DB.Where("product_id = ? AND created_at <= ?", p.ID, endOfDay).
+			Order("created_at desc").
+			First(&lastLedger).Error
+
+		historicalStock := 0
+		if err == nil {
+			// We found a ledger entry! This was the exact stock balance on that day.
+			historicalStock = lastLedger.Balance
+		} else {
+			// No ledger entries exist before this date. This means the item wasn't in the store yet (Stock = 0).
+			continue
+		}
+
+		// If stock was 0 on that date, skip it to keep the report clean
+		if historicalStock <= 0 {
+			continue
+		}
+
+		// --- Apply the exact same grouping math as the live valuation ---
+		catName := p.Category
+		if catName == "" {
+			catName = "Uncategorized"
+		}
+
+		if _, exists := groupedMap[catName]; !exists {
+			groupedMap[catName] = &CategoryGroup{
+				CategoryName: catName,
+				Items:        []ValuationItem{},
+				Subtotal:     0,
+			}
+		}
+
+		itemTotal := float64(historicalStock) * p.CostPrice
+
+		valItem := ValuationItem{
+			Name:      p.Name,
+			Quantity:  historicalStock,
+			CostPrice: p.CostPrice,
+			TotalCost: itemTotal,
+		}
+
+		groupedMap[catName].Items = append(groupedMap[catName].Items, valItem)
+		groupedMap[catName].Subtotal += itemTotal
+		grandTotal += itemTotal
+	}
+
+	// 5. Package and send to React
+	var response ValuationResponse
+	response.GrandTotal = grandTotal
+	for _, group := range groupedMap {
+		response.Categories = append(response.Categories, *group)
+	}
+
 	c.JSON(http.StatusOK, response)
 }

@@ -46,13 +46,25 @@ func AddProduct(c *gin.Context) {
 		return
 	}
 
+	// --- NEW: Ledger Interceptor ---
+	// If the user created the product with initial stock, log it in the ledger!
+	if newProduct.StockQuantity > 0 {
+		ledgerEntry := models.StockLedger{
+			ProductID:    newProduct.ID,
+			ChangeAmount: newProduct.StockQuantity,
+			Balance:      newProduct.StockQuantity,
+			Reason:       "Initial Setup",
+			CreatedAt:    time.Now(),
+		}
+		database.DB.Create(&ledgerEntry) // Silently save in background
+	}
+	// -------------------------------
+
 	c.JSON(http.StatusCreated, newProduct)
 }
 
 // --- PUT: Update Price or Stock ---
-// The AI will use this tool to change prices.
 func UpdateProduct(c *gin.Context) {
-	// 1. Get ID from URL (e.g., /products/5)
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
@@ -60,26 +72,54 @@ func UpdateProduct(c *gin.Context) {
 		return
 	}
 
-	// 2. Find existing product
 	var product models.Product
 	if err := database.DB.First(&product, id).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
 		return
 	}
 
-	// 3. Update fields based on JSON input
-	// We use a map so we only update what was sent (partial update)
 	var updateData map[string]interface{}
 	if err := c.ShouldBindJSON(&updateData); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input"})
 		return
 	}
 
-	// 4. Save updates
+	// --- NEW: Ledger Preparation ---
+	// Remember the old stock before we overwrite it
+	oldStock := product.StockQuantity
+	var newStock int
+	stockChanged := false
+
+	// Safely check if the incoming JSON contains a change to "stock_quantity"
+	if sq, exists := updateData["stock_quantity"]; exists {
+		// JSON numbers default to float64, so we must safely convert to int
+		if val, ok := sq.(float64); ok {
+			newStock = int(val)
+			stockChanged = true
+		}
+	}
+	// -------------------------------
+
+	// 4. Save updates to the Product
 	if err := database.DB.Model(&product).Updates(updateData).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update product"})
 		return
 	}
+
+	// --- NEW: Ledger Interceptor ---
+	// If the stock was changed, calculate the difference and record it
+	if stockChanged && oldStock != newStock {
+		changeAmount := newStock - oldStock // e.g., 50 - 40 = +10
+		ledgerEntry := models.StockLedger{
+			ProductID:    product.ID,
+			ChangeAmount: changeAmount,
+			Balance:      newStock,
+			Reason:       "Manual Audit / Restock",
+			CreatedAt:    time.Now(),
+		}
+		database.DB.Create(&ledgerEntry)
+	}
+	// -------------------------------
 
 	c.JSON(http.StatusOK, gin.H{"message": "Product updated successfully", "product": product})
 }
@@ -134,6 +174,21 @@ func ProcessSale(c *gin.Context) {
 		if err := tx.Save(&product).Error; err != nil {
 			tx.Rollback()
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update stock"})
+			return
+		}
+
+		// --- NEW: Ledger Interceptor ---
+		// We write this inside the 'tx' transaction. If the sale fails, this ledger entry is erased!
+		ledgerEntry := models.StockLedger{
+			ProductID:    product.ID,
+			ChangeAmount: -item.Quantity, // Negative because it's leaving the store
+			Balance:      product.StockQuantity,
+			Reason:       "Sale Checkout",
+			CreatedAt:    time.Now(),
+		}
+		if err := tx.Create(&ledgerEntry).Error; err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to write audit ledger"})
 			return
 		}
 

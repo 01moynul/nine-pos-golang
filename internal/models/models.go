@@ -25,6 +25,20 @@ type Product struct {
 	StockReserved   int     `json:"stock_reserved"`    // Required for Task 3.1 (Omnichannel Holds)
 	IsSSTApplicable bool    `json:"is_sst_applicable"` // Required for Task 1.3 (Tax Config)
 	ImageURL        string  `json:"image_url"`
+	// --- NEW: Time Tracking ---
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// StockLedger - Enterprise Audit Trail for Inventory Management
+type StockLedger struct {
+	ID           uint      `gorm:"primaryKey" json:"id"`
+	ProductID    uint      `json:"product_id"`
+	Product      Product   `json:"-"`             // Relationship link, hidden from JSON to save bandwidth
+	ChangeAmount int       `json:"change_amount"` // e.g., +50 (Restock) or -2 (Sale)
+	Balance      int       `json:"balance"`       // The total stock AFTER this specific transaction
+	Reason       string    `json:"reason"`        // e.g., "Initial Setup", "Sale: RCPT-123", "Manual Audit"
+	CreatedAt    time.Time `json:"created_at"`    // The exact moment the stock changed
 }
 
 // ComboComponent - Required for Task 3.3 (Bundle Engine)
