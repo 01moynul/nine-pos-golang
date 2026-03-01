@@ -203,13 +203,18 @@ func ProcessSale(c *gin.Context) {
 		})
 	}
 
+	// --- NEW FIX: Generate a Unique Receipt ID (Roadmap Task 2.3) ---
+	// Example Output: RCPT-1709123456
+	uniqueReceiptID := fmt.Sprintf("RCPT-%d", time.Now().Unix())
+
 	// 3. Create the Sale Header
 	sale := models.Sale{
+		ReceiptID:   uniqueReceiptID, // <--- THE FIX: Assign the generated ID
 		UserID:      userID,
 		TotalAmount: totalAmount,
 		SaleTime:    time.Now(),
 		Status:      "completed",
-		Items:       saleItems, // GORM will automatically insert these!
+		Items:       saleItems,
 	}
 
 	if err := tx.Create(&sale).Error; err != nil {
