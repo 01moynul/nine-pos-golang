@@ -59,6 +59,7 @@ type Sale struct {
 	SaleTime         time.Time  `json:"sale_time"`
 	LHDNValidationID string     `json:"lhdn_validation_id"` // Task 2.2 (Mandatory Tax Compliance)
 	LHDNQRCodeURL    string     `json:"lhdn_qr_code_url"`   // Task 2.2
+	SecurityVideoURL string     `json:"security_video_url"` // NEW: Task 2.4 - Google Drive link for successful checkout video
 	Items            []SaleItem `gorm:"foreignKey:SaleID" json:"items"`
 }
 
@@ -90,4 +91,26 @@ type SystemLicense struct {
 	IsActive       bool      `json:"is_active"`                               // Toggle for manual overrides
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
+}
+
+// VoidedTransaction - Stores data for abandoned or completely cleared carts (Task 2.4)
+type VoidedTransaction struct {
+	ID               uint      `gorm:"primaryKey" json:"id"`
+	SessionID        string    `json:"session_id"`         // The temporary ID generated when video recording started
+	UserID           uint      `json:"user_id"`            // The cashier logged in at the time
+	TotalValueLost   float64   `json:"total_value_lost"`   // Total RM value of the cart when it was cleared
+	ItemsInCart      string    `json:"items_in_cart"`      // JSON string of items that were in the cart
+	Reason           string    `json:"reason"`             // e.g., "Clear Order Button", "Trash Can Drop to Zero"
+	SecurityVideoURL string    `json:"security_video_url"` // Link to the Google Drive video showing the void action
+	Timestamp        time.Time `json:"timestamp"`
+}
+
+// SuspiciousActivityLog - Stores lightweight pings for partial line voids (Task 2.4)
+type SuspiciousActivityLog struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	SessionID string    `json:"session_id"` // Links to the current active video recording session
+	UserID    uint      `json:"user_id"`
+	Action    string    `json:"action"`    // e.g., "PARTIAL_LINE_VOID"
+	ItemName  string    `json:"item_name"` // What exactly was removed from the cart
+	Timestamp time.Time `json:"timestamp"` // Exact time so the manager knows where to scrub in the video
 }

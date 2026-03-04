@@ -79,6 +79,15 @@ func main() {
 		api.GET("/products", handlers.GetProducts)
 		api.POST("/checkout", handlers.ProcessSale)
 		api.GET("/products/scan/:barcode", handlers.ScanProduct)
+		// --- NEW: SMART SECURITY ROUTES (Task 2.4) ---
+		security := api.Group("/security")
+		{
+			security.POST("/start", handlers.StartRecording)
+			security.POST("/log-removal", handlers.LogRemoval)
+			security.POST("/stop-success", handlers.StopSuccess)
+			security.POST("/stop-void", handlers.StopVoid)
+		}
+		// ----------------------------------------------
 
 		// ADMIN ONLY
 		admin := api.Group("/")
