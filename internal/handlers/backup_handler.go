@@ -15,7 +15,6 @@ import (
 	"google.golang.org/api/option"
 )
 
-// TriggerManualBackup is called by the Admin from the React UI
 func TriggerManualBackup(c *gin.Context) {
 	err := processBackup("manual")
 	if err != nil {
@@ -25,39 +24,40 @@ func TriggerManualBackup(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Manual backup completed successfully!"})
 }
 
-// GetBackupsList fetches all backups from Google Drive for the React UI
 func GetBackupsList(c *gin.Context) {
 	folderID := os.Getenv("GOOGLE_DRIVE_FOLDER_ID")
 	ctx := context.Background()
-	client, err := drive.NewService(ctx, option.WithCredentialsFile("cmd/server/credentials.json")) // Adjust path if needed
+	client, err := drive.NewService(ctx, option.WithCredentialsFile("cmd/server/credentials.json"))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Auth failed"})
 		return
 	}
 
-	// Fetch files in the folder, ordered by newest first
 	query := fmt.Sprintf("'%s' in parents and trashed = false", folderID)
-	fileList, err := client.Files.List().Q(query).OrderBy("createdTime desc").Fields("files(id, name, createdTime, size)").Do()
+	// NEW: Added SupportsAllDrives and IncludeItemsFromAllDrives for Shared Workspaces
+	fileList, err := client.Files.List().Q(query).
+		SupportsAllDrives(true).
+		IncludeItemsFromAllDrives(true).
+		OrderBy("createdTime desc").
+		Fields("files(id, name, createdTime, size)").Do()
+
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch files"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch files: " + err.Error()})
 		return
 	}
 
 	c.JSON(http.StatusOK, fileList.Files)
 }
 
-// RunHourlyAutoBackup is triggered by the Go background ticker
 func RunHourlyAutoBackup() {
 	fmt.Println("🕰️ Running hourly auto-backup...")
-	err := processBackup("auto")
-	if err != nil {
+	if err := processBackup("auto"); err != nil {
 		fmt.Println("❌ Auto-backup failed:", err)
 	} else {
 		fmt.Println("✅ Auto-backup successful!")
 	}
 }
 
-// CleanupOldAutoBackups deletes "auto_" backups older than 7 days
 func CleanupOldAutoBackups() {
 	folderID := os.Getenv("GOOGLE_DRIVE_FOLDER_ID")
 	ctx := context.Background()
@@ -66,16 +66,17 @@ func CleanupOldAutoBackups() {
 		return
 	}
 
-	// Calculate date 7 days ago
 	sevenDaysAgo := time.Now().AddDate(0, 0, -7).Format(time.RFC3339)
-
-	// Query: Find files named 'auto_*' older than 7 days
 	query := fmt.Sprintf("'%s' in parents and name contains 'auto_' and modifiedTime < '%s'", folderID, sevenDaysAgo)
 
-	fileList, err := client.Files.List().Q(query).Fields("files(id, name)").Do()
+	fileList, err := client.Files.List().Q(query).
+		SupportsAllDrives(true).
+		IncludeItemsFromAllDrives(true).
+		Fields("files(id, name)").Do()
+
 	if err == nil {
 		for _, file := range fileList.Files {
-			client.Files.Delete(file.Id).Do()
+			client.Files.Delete(file.Id).SupportsAllDrives(true).Do()
 			fmt.Printf("🗑️ Deleted old auto-backup: %s\n", file.Name)
 		}
 	}
@@ -83,30 +84,47 @@ func CleanupOldAutoBackups() {
 
 // --- CORE LOGIC (Shared by Manual and Auto) ---
 func processBackup(prefix string) error {
-	dbPath := "ninepos_local.db"
-	timestamp := time.Now().Format("2006-01-02_15-04-05")
-	zipFileName := fmt.Sprintf("%s_backup_%s.zip", prefix, timestamp)
-
-	if err := createZip(zipFileName, dbPath); err != nil {
-		return fmt.Errorf("compress failed: %v", err)
+	// 1. Check Production Path
+	dbPath := `C:\NinePOS_Data\inventory.db`
+	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+		// Fallback to Development Path
+		dbPath = "inventory.db"
+		if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+			return fmt.Errorf("Database not found in C:\\NinePOS_Data or local root folder.")
+		}
 	}
 
+	// 2. Create local backups temp folder
+	backupDir := "backups"
+	if err := os.MkdirAll(backupDir, os.ModePerm); err != nil {
+		return fmt.Errorf("Failed to create backups folder: %v", err)
+	}
+
+	timestamp := time.Now().Format("2006-01-02_15-04-05")
+	zipFileName := filepath.Join(backupDir, fmt.Sprintf("%s_backup_%s.zip", prefix, timestamp))
+
+	// 3. Compress
+	if err := createZip(zipFileName, dbPath); err != nil {
+		os.Remove(zipFileName)
+		return fmt.Errorf("Compression failed: %v", err)
+	}
+
+	// 4. Upload
 	folderID := os.Getenv("GOOGLE_DRIVE_FOLDER_ID")
 	if folderID == "" {
 		os.Remove(zipFileName)
-		return fmt.Errorf("GOOGLE_DRIVE_FOLDER_ID missing")
+		return fmt.Errorf("GOOGLE_DRIVE_FOLDER_ID is missing")
 	}
 
 	if err := uploadToDrive(zipFileName, folderID); err != nil {
 		os.Remove(zipFileName)
-		return fmt.Errorf("upload failed: %v", err)
+		return fmt.Errorf("Google Drive upload failed: %v", err)
 	}
 
-	os.Remove(zipFileName) // Clean up local zip
+	os.Remove(zipFileName)
 	return nil
 }
 
-// Helper function to zip a file
 func createZip(zipName, fileName string) error {
 	newZipFile, err := os.Create(zipName)
 	if err != nil {
@@ -143,10 +161,8 @@ func createZip(zipName, fileName string) error {
 	return err
 }
 
-// Helper function to handle Google Drive Upload
 func uploadToDrive(localFilePath string, folderID string) error {
 	ctx := context.Background()
-	// IMPORTANT: Ensure this path matches where credentials.json is located relative to main.go
 	client, err := drive.NewService(ctx, option.WithCredentialsFile("cmd/server/credentials.json"))
 	if err != nil {
 		return err
@@ -159,10 +175,53 @@ func uploadToDrive(localFilePath string, folderID string) error {
 	defer file.Close()
 
 	f := &drive.File{
-		Name:    localFilePath,
+		Name:    filepath.Base(localFilePath), // Ensures cloud file name is clean
 		Parents: []string{folderID},
 	}
 
-	_, err = client.Files.Create(f).Media(file).Do()
+	// NEW: Added .SupportsAllDrives(true) to allow Shared Drive uploads!
+	_, err = client.Files.Create(f).Media(file).SupportsAllDrives(true).Do()
 	return err
+}
+
+// DeleteBackup removes a specific file from Google Drive
+func DeleteBackup(c *gin.Context) {
+	fileID := c.Param("id")
+	ctx := context.Background()
+	client, err := drive.NewService(ctx, option.WithCredentialsFile("cmd/server/credentials.json"))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Auth failed"})
+		return
+	}
+
+	err = client.Files.Delete(fileID).SupportsAllDrives(true).Do()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete file from Drive"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Backup deleted successfully"})
+}
+
+// DownloadBackup fetches the zip from Google Drive and sends it to the browser
+func DownloadBackup(c *gin.Context) {
+	fileID := c.Param("id")
+	ctx := context.Background()
+	client, err := drive.NewService(ctx, option.WithCredentialsFile("cmd/server/credentials.json"))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Auth failed"})
+		return
+	}
+
+	res, err := client.Files.Get(fileID).SupportsAllDrives(true).Download()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to download from Drive"})
+		return
+	}
+	defer res.Body.Close()
+
+	// Tell the browser this is a file download
+	c.Header("Content-Disposition", "attachment; filename=ninepos_restore.zip")
+	c.Header("Content-Type", "application/zip")
+	io.Copy(c.Writer, res.Body)
 }

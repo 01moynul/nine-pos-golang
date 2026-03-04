@@ -6,6 +6,7 @@ cmd/server/credentials.json
 # Local Editor History (VS Code extensions)
 .history/
 uploads
+backups
 web
 
 # Binaries/Executables
