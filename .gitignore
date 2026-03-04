@@ -1,5 +1,7 @@
 # Security: Never commit environment variables
 .env
+credentials.json
+cmd/server/credentials.json
 
 # Local Editor History (VS Code extensions)
 .history/
@@ -12,7 +14,6 @@ web
 *.dll
 *.so
 *.dylib
-taptosell-golang
 main
 
 # OS specific files

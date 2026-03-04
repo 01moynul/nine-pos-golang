@@ -21,6 +21,25 @@ func main() {
 	}
 
 	database.Connect()
+
+	// --- NEW: BACKGROUND BACKUP ENGINE ---
+	// 1. Hourly Auto-Backup
+	go func() {
+		hourlyTicker := time.NewTicker(1 * time.Hour)
+		for range hourlyTicker.C {
+			handlers.RunHourlyAutoBackup()
+		}
+	}()
+
+	// 2. Daily Cleanup (Deletes auto-backups older than 7 days)
+	go func() {
+		dailyTicker := time.NewTicker(24 * time.Hour)
+		for range dailyTicker.C {
+			handlers.CleanupOldAutoBackups()
+		}
+	}()
+	// -------------------------------------
+
 	r := gin.Default()
 
 	// --- 3. ADD THIS BLOCK HERE (The Bridge Configuration) ---
@@ -76,6 +95,9 @@ func main() {
 			// --- NEW: Stock Valuation Reports ---
 			admin.GET("/reports/valuation", handlers.GetStockValuation)
 			admin.GET("/reports/valuation/history", handlers.GetHistoricalValuation) // <--- ADD THIS LINE
+			// --- NEW: Backup Management Routes ---
+			admin.GET("/backup/list", handlers.GetBackupsList)
+			admin.POST("/backup/manual", handlers.TriggerManualBackup)
 		}
 	}
 
