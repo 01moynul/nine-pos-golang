@@ -199,7 +199,8 @@ func ProcessSale(c *gin.Context) {
 		saleItems = append(saleItems, models.SaleItem{
 			ProductID:   product.ID,
 			Quantity:    item.Quantity,
-			PriceAtSale: product.Price,
+			BuyPriceRM:  product.CostPrice, // <-- NEW (Task 3.2): Snapshot the Cost Price at exact moment of sale
+			PriceAtSale: product.Price,     // Snapshot the Sell Price at exact moment of sale
 		})
 	}
 

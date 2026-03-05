@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -23,9 +24,11 @@ import (
 // ActiveRecording tracks ongoing camera sessions in server memory
 type ActiveRecording struct {
 	SessionID string
-	Cmd       *exec.Cmd // The actual FFmpeg process
-	FilePath  string    // Where the temporary video is saving
-	IsClosing bool      // Flag for our 30-second overhang logic later
+	Cmd       *exec.Cmd      // The actual FFmpeg process
+	Stdin     io.WriteCloser // <--- NEW FIX: Pipe to send commands to FFmpeg
+	FilePath  string         // Where the temporary video is saving
+	IsClosing bool           // Flag for our 30-second overhang logic later
+	Cutover   chan bool      // <--- NEW FIX: Channel to interrupt the 30s timer
 }
 
 var (
@@ -37,10 +40,39 @@ var (
 
 // StartRecording API - Triggered the moment the cart goes from 0 to 1 item
 func StartRecording(c *gin.Context) {
+	// --- NEW FIX: The Instant Cutover Interceptor ---
+	// We must safely stop any existing recordings and free the hardware BEFORE starting a new one.
+	recordingMutex.Lock()
+	var pendingSessions []*ActiveRecording
+	for _, session := range activeRecordings {
+		pendingSessions = append(pendingSessions, session)
+	}
+	recordingMutex.Unlock()
+
+	if len(pendingSessions) > 0 {
+		log.Println("⚡ SECURITY: Instant Cutover triggered! Intercepting previous camera session...")
+		for _, session := range pendingSessions {
+			if session.IsClosing && session.Cutover != nil {
+				// It's currently in the 30-second sleep. Wake it up instantly!
+				select {
+				case session.Cutover <- true:
+				default:
+				}
+			} else if session.Stdin != nil {
+				// Safety fallback: It was abandoned. Kill it manually.
+				io.WriteString(session.Stdin, "q")
+				session.Stdin.Close()
+			}
+		}
+		// Give Windows 1.5 seconds to fully release the webcam hardware lock
+		time.Sleep(1500 * time.Millisecond)
+	}
+	// ------------------------------------------------
+
 	recordingMutex.Lock()
 	defer recordingMutex.Unlock()
 
-	// 1. Generate a unique ID for this cart session
+	// 1. Generate a unique ID for this cart session...
 	sessionID := uuid.New().String()
 
 	// 2. Define where the temporary video will be saved locally before cloud upload
@@ -50,23 +82,35 @@ func StartRecording(c *gin.Context) {
 	filePath := filepath.Join(tempDir, fileName)
 
 	// 3. Build the FFmpeg Command
-	// This captures the Windows Desktop (gdigrab) and a specific Webcam (dshow).
-	// We use a low framerate (10 FPS) to keep CPU usage extremely low.
-	// NOTE: Ensure your webcam is named exactly "Security_Cam" in Windows, or change it here.
+	// Dynamically pull the camera name from the .env file.
+	webcamName := os.Getenv("WEBCAM_DEVICE_NAME")
+	if webcamName == "" {
+		// Fallback for your local development if the .env variable is missing
+		webcamName = "Logitech BRIO"
+		log.Println("⚠️ SECURITY WARNING: WEBCAM_DEVICE_NAME not found in .env, falling back to default.")
+	}
+	cameraInput := "video=" + webcamName
+
 	cmd := exec.Command("./ffmpeg.exe",
-		"-y",                                                 // Overwrite output files without asking
-		"-f", "gdigrab", "-framerate", "10", "-i", "desktop", // Capture Screen
-		"-f", "dshow", "-framerate", "10", "-i", "video=Logitech BRIO", // Capture Webcam <--- MAPPED HERE!
-		"-filter_complex", "[0:v][1:v] overlay=W-w-10:H-h-10", // Picture-in-Picture (Bottom Right)
-		"-vcodec", "libx264", "-preset", "ultrafast", "-crf", "28", // Heavy compression for speed
+		"-y",
+		"-f", "gdigrab", "-framerate", "24", "-i", "desktop",
+		"-f", "dshow", "-framerate", "24", "-i", cameraInput, // <--- NEW FIX: Dynamic hardware injection
+		"-filter_complex", "[0:v][1:v] overlay=W-w-10:H-h-10",
+		"-vcodec", "libx264", "-preset", "ultrafast", "-crf", "28",
+		"-pix_fmt", "yuv420p",
+		"-movflags", "+faststart",
 		filePath,
 	)
 
-	// 4. Start the camera silently in the background
-	err := cmd.Start()
+	// 4. Create the Stdin pipe to send commands later, then start the camera
+	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		log.Printf("⚠️ SECURITY WARNING: Failed to start FFmpeg. Camera might be in use or unplugged. Error: %v\n", err)
-		// We still return 200 OK so the cashier can keep checking out the customer. We do not freeze the POS.
+		log.Printf("⚠️ SECURITY WARNING: Failed to create input pipe for FFmpeg: %v\n", err)
+	}
+
+	err = cmd.Start()
+	if err != nil {
+		log.Printf("⚠️ SECURITY WARNING: Failed to start FFmpeg. Error: %v\n", err)
 		c.JSON(http.StatusOK, gin.H{"status": "camera_bypassed", "session_id": sessionID})
 		return
 	}
@@ -75,8 +119,10 @@ func StartRecording(c *gin.Context) {
 	activeRecordings[sessionID] = &ActiveRecording{
 		SessionID: sessionID,
 		Cmd:       cmd,
+		Stdin:     stdin,
 		FilePath:  filePath,
 		IsClosing: false,
+		Cutover:   make(chan bool, 1), // <--- Initialize the channel
 	}
 
 	log.Printf("🔴 SECURITY REC: Started recording session %s\n", sessionID)
@@ -168,18 +214,35 @@ func finalizeRecording(sessionID string, isSuccess bool, orderID uint, reason st
 
 	log.Printf("⏱️ SECURITY: Transaction closed. Starting 30-second camera overhang for Session %s...\n", sessionID)
 
-	// 2. THE OVERHANG: Wait exactly 30 seconds to catch cash handling!
-	time.Sleep(30 * time.Second)
-
-	// 3. Stop the camera
-	recordingMutex.Lock()
-	if session.Cmd != nil && session.Cmd.Process != nil {
-		session.Cmd.Process.Kill() // Safely force quit FFmpeg
+	// 2. THE OVERHANG: Wait exactly 30 seconds... OR until interrupted by the Cutover!
+	select {
+	case <-time.After(30 * time.Second):
+		log.Printf("⏱️ SECURITY: 30-second overhang complete for Session %s.\n", sessionID)
+	case <-session.Cutover:
+		log.Printf("⚡ SECURITY: Overhang interrupted! Saving Session %s instantly.\n", sessionID)
 	}
+
+	// 3. Stop the camera GRACEFULLY
+	recordingMutex.Lock()
+	if session.Cmd != nil && session.Stdin != nil {
+		log.Printf("🛑 SECURITY: Sending graceful quit signal to FFmpeg for Session %s...\n", sessionID)
+
+		// Send the "q" character to FFmpeg to tell it to finalize the MP4 file
+		io.WriteString(session.Stdin, "q")
+		session.Stdin.Close()
+
+		// We MUST wait for FFmpeg to finish writing the file trailer.
+		// We unlock the mutex temporarily so we don't freeze other POS operations while waiting.
+		recordingMutex.Unlock()
+		session.Cmd.Wait()
+		recordingMutex.Lock() // Re-lock to safely delete from memory
+	} else if session.Cmd != nil && session.Cmd.Process != nil {
+		// Fallback just in case the pipe failed
+		session.Cmd.Process.Kill()
+	}
+
 	delete(activeRecordings, sessionID) // Clear from server memory
 	recordingMutex.Unlock()
-
-	log.Printf("🛑 SECURITY: Camera stopped for Session %s. Saving to database...\n", sessionID)
 
 	// 4. Save to the correct database table based on whether it was a Success or Void
 	if isSuccess {
@@ -240,7 +303,7 @@ func uploadSecurityVideo(sessionID string, localFilePath string, isSuccess bool,
 	uploadedFile, err := client.Files.Create(f).
 		Media(file).
 		SupportsAllDrives(true).
-		Fields("id, webViewLink"). // We specifically request the shareable link!
+		Fields("id, webContentLink"). // <--- NEW FIX: Request direct MP4 stream, not the HTML preview page
 		Do()
 
 	if err != nil {
@@ -262,7 +325,7 @@ func uploadSecurityVideo(sessionID string, localFilePath string, isSuccess bool,
 	}
 
 	// 7. Update the Database with the new Video Link!
-	videoLink := uploadedFile.WebViewLink
+	videoLink := uploadedFile.WebContentLink // <--- NEW FIX: Map the direct streaming link
 	searchStr := "PENDING_UPLOAD_" + sessionID
 
 	if isSuccess {

@@ -13,58 +13,99 @@ import (
 // ReportData defines the shape of our analytics response
 type ReportData struct {
 	TotalRevenue float64 `json:"total_revenue"`
+	TotalProfit  float64 `json:"total_profit"` // Fixes the NaN issue
 	TotalOrders  int64   `json:"total_orders"`
 	TopSelling   []struct {
 		ProductName string  `json:"product_name"`
 		Sold        int     `json:"sold"`
 		Revenue     float64 `json:"revenue"`
+		Profit      float64 `json:"profit"`
 	} `json:"top_selling"`
-	// --- NEW: Include Recent Transactions ---
-	RecentSales []models.Sale `json:"recent_sales"`
+	RecentSales []models.Sale              `json:"recent_sales"`
+	VoidedSales []models.VoidedTransaction `json:"voided_sales"` // NEW: Task 2.4 Security Audits
 }
 
 // --- GET: /api/reports ---
 func GetSalesReport(c *gin.Context) {
 	var data ReportData
 
-	// 1. Calculate Total Revenue (All time)
-	err := database.DB.Model(&models.Sale{}).
-		Select("COALESCE(SUM(total_amount), 0)").
-		Scan(&data.TotalRevenue).Error
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to calculate revenue"})
+	// --- 1. DYNAMIC TIME FILTER LOGIC ---
+	timeframe := c.Query("timeframe") // e.g., "today", "7days", "30days"
+	now := time.Now()
+	var startTime time.Time
+
+	switch timeframe {
+	case "today":
+		// Start of today (Midnight)
+		startTime = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	case "7days":
+		startTime = now.AddDate(0, 0, -7)
+	case "30days":
+		startTime = now.AddDate(0, 0, -30)
+	default:
+		// "all" time - startTime remains zero
+		startTime = time.Time{}
+	}
+
+	// --- 2. REVENUE & PROFIT (Filtered) ---
+	salesQuery := database.DB.Table("sale_items").
+		Joins("JOIN sales ON sale_items.sale_id = sales.id").
+		Where("sales.status = ?", "completed")
+
+	if !startTime.IsZero() {
+		salesQuery = salesQuery.Where("sales.sale_time >= ?", startTime)
+	}
+
+	row := salesQuery.
+		Select("COALESCE(SUM(sale_items.quantity * sale_items.price_at_sale), 0), COALESCE(SUM(sale_items.quantity * (sale_items.price_at_sale - sale_items.buy_price_rm)), 0)").
+		Row()
+
+	if err := row.Scan(&data.TotalRevenue, &data.TotalProfit); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to calculate revenue and profit"})
 		return
 	}
 
-	// 2. Count Total Orders
-	err = database.DB.Model(&models.Sale{}).Count(&data.TotalOrders).Error
-	if err != nil {
+	// --- 3. TOTAL ORDERS (Filtered) ---
+	ordersQuery := database.DB.Model(&models.Sale{}).Where("status = ?", "completed")
+	if !startTime.IsZero() {
+		ordersQuery = ordersQuery.Where("sale_time >= ?", startTime)
+	}
+	if err := ordersQuery.Count(&data.TotalOrders).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to count orders"})
 		return
 	}
 
-	// 3. Find Top 5 Best Sellers
-	err = database.DB.Table("sale_items").
-		Select("products.name as product_name, SUM(sale_items.quantity) as sold, SUM(sale_items.quantity * sale_items.price_at_sale) as revenue").
+	// --- 4. TOP SELLING ITEMS (Filtered) ---
+	topSellingQuery := database.DB.Table("sale_items").
+		Select("products.name as product_name, SUM(sale_items.quantity) as sold, SUM(sale_items.quantity * sale_items.price_at_sale) as revenue, SUM(sale_items.quantity * (sale_items.price_at_sale - sale_items.buy_price_rm)) as profit").
 		Joins("JOIN products ON sale_items.product_id = products.id").
-		Group("products.name").
-		Order("sold desc").
-		Limit(5).
-		Scan(&data.TopSelling).Error
+		Joins("JOIN sales ON sale_items.sale_id = sales.id").
+		Where("sales.status = ?", "completed")
 
+	if !startTime.IsZero() {
+		topSellingQuery = topSellingQuery.Where("sales.sale_time >= ?", startTime)
+	}
+
+	err := topSellingQuery.Group("products.name").Order("sold desc").Limit(5).Scan(&data.TopSelling).Error
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch top selling items"})
 		return
 	}
 
-	// 4. --- NEW: Fetch Recent Transactions ---
-	// We get the last 10 sales, ordered by newest first
-	err = database.DB.Order("sale_time desc").Limit(10).Find(&data.RecentSales).Error
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch recent sales"})
-		return
+	// --- 5. RECENT SALES & VOIDED (Filtered) ---
+	recentSalesQuery := database.DB.Order("sale_time desc").Limit(10)
+	if !startTime.IsZero() {
+		recentSalesQuery = recentSalesQuery.Where("sale_time >= ?", startTime)
 	}
+	recentSalesQuery.Find(&data.RecentSales)
 
+	voidedQuery := database.DB.Order("timestamp desc").Limit(10)
+	if !startTime.IsZero() {
+		voidedQuery = voidedQuery.Where("timestamp >= ?", startTime)
+	}
+	voidedQuery.Find(&data.VoidedSales)
+
+	// Send data to frontend
 	c.JSON(http.StatusOK, data)
 }
 
