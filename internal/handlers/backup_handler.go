@@ -15,6 +15,17 @@ import (
 	"google.golang.org/api/option"
 )
 
+// --- NEW FIX: Dynamic Credentials Pathing ---
+func getCredentialsPath() string {
+	credPath := "credentials.json" // Production path (Deployment folder)
+	if _, err := os.Stat("cmd/server/credentials.json"); err == nil {
+		credPath = "cmd/server/credentials.json" // Local development path
+	}
+	return credPath
+}
+
+// --------------------------------------------
+
 func TriggerManualBackup(c *gin.Context) {
 	err := processBackup("manual")
 	if err != nil {
@@ -27,7 +38,7 @@ func TriggerManualBackup(c *gin.Context) {
 func GetBackupsList(c *gin.Context) {
 	folderID := os.Getenv("GOOGLE_DRIVE_FOLDER_ID")
 	ctx := context.Background()
-	client, err := drive.NewService(ctx, option.WithCredentialsFile("cmd/server/credentials.json"))
+	client, err := drive.NewService(ctx, option.WithCredentialsFile(getCredentialsPath()))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Auth failed"})
 		return
@@ -61,7 +72,7 @@ func RunHourlyAutoBackup() {
 func CleanupOldAutoBackups() {
 	folderID := os.Getenv("GOOGLE_DRIVE_FOLDER_ID")
 	ctx := context.Background()
-	client, err := drive.NewService(ctx, option.WithCredentialsFile("cmd/server/credentials.json"))
+	client, err := drive.NewService(ctx, option.WithCredentialsFile(getCredentialsPath()))
 	if err != nil || folderID == "" {
 		return
 	}
@@ -163,7 +174,7 @@ func createZip(zipName, fileName string) error {
 
 func uploadToDrive(localFilePath string, folderID string) error {
 	ctx := context.Background()
-	client, err := drive.NewService(ctx, option.WithCredentialsFile("cmd/server/credentials.json"))
+	client, err := drive.NewService(ctx, option.WithCredentialsFile(getCredentialsPath()))
 	if err != nil {
 		return err
 	}
@@ -188,7 +199,7 @@ func uploadToDrive(localFilePath string, folderID string) error {
 func DeleteBackup(c *gin.Context) {
 	fileID := c.Param("id")
 	ctx := context.Background()
-	client, err := drive.NewService(ctx, option.WithCredentialsFile("cmd/server/credentials.json"))
+	client, err := drive.NewService(ctx, option.WithCredentialsFile(getCredentialsPath()))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Auth failed"})
 		return
@@ -207,7 +218,7 @@ func DeleteBackup(c *gin.Context) {
 func DownloadBackup(c *gin.Context) {
 	fileID := c.Param("id")
 	ctx := context.Background()
-	client, err := drive.NewService(ctx, option.WithCredentialsFile("cmd/server/credentials.json"))
+	client, err := drive.NewService(ctx, option.WithCredentialsFile(getCredentialsPath()))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Auth failed"})
 		return

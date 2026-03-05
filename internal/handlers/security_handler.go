@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings" // <--- ADD THIS
 	"sync"
 	"time"
 
@@ -276,21 +277,31 @@ func uploadSecurityVideo(sessionID string, localFilePath string, isSuccess bool,
 		return
 	}
 
-	// 2. Authenticate using the existing credentials.json
+	// 2. Locate the credentials file (Dynamic Pathing for Dev vs Prod)
+	credPath := "credentials.json" // Production path (expects it right next to NinePOS.exe)
+
+	// Fallback: If we are in local development, use the deep folder path
+	if _, err := os.Stat("cmd/server/credentials.json"); err == nil {
+		credPath = "cmd/server/credentials.json"
+	}
+
+	// 3. Authenticate using the dynamic path
 	ctx := context.Background()
-	client, err := drive.NewService(ctx, option.WithCredentialsFile("cmd/server/credentials.json"))
+	client, err := drive.NewService(ctx, option.WithCredentialsFile(credPath))
 	if err != nil {
 		log.Printf("❌ SECURITY ERROR: Google Drive auth failed: %v\n", err)
 		return
 	}
 
-	// 3. Open the local .mp4 file
+	// --- THIS IS THE PART THAT GOT DELETED ---
+	// 3b. Open the local .mp4 file
 	file, err := os.Open(localFilePath)
 	if err != nil {
 		log.Printf("❌ SECURITY ERROR: Could not open local video file: %v\n", err)
 		return
 	}
 	defer file.Close()
+	// -----------------------------------------
 
 	// 4. Define Google Drive metadata (Name and Folder)
 	cloudFileName := filepath.Base(localFilePath)
@@ -340,4 +351,41 @@ func uploadSecurityVideo(sessionID string, localFilePath string, isSuccess bool,
 	// 8. Delete the local .mp4 to save hard drive space on the POS
 	file.Close() // Ensure Windows unlocks the file
 	os.Remove(localFilePath)
+}
+
+// RetryFailedUploads runs on server startup to find and upload stranded videos
+func RetryFailedUploads() {
+	log.Println("🔄 SECURITY: Scanning for stranded video uploads...")
+
+	tempDir := filepath.Join("C:\\NinePOS_Data", "temp_security_vids")
+
+	// 1. Recover Voided Transactions
+	var strandedVoids []models.VoidedTransaction
+	database.DB.Where("security_video_url LIKE ?", "PENDING_UPLOAD_%").Find(&strandedVoids)
+
+	for _, voidTx := range strandedVoids {
+		// Extract the SessionID from the "PENDING_UPLOAD_uuid" string
+		sessionID := strings.Replace(voidTx.SecurityVideoURL, "PENDING_UPLOAD_", "", 1)
+		filePath := filepath.Join(tempDir, fmt.Sprintf("session_%s.mp4", sessionID))
+
+		// Check if the file actually exists locally
+		if _, err := os.Stat(filePath); err == nil {
+			log.Printf("♻️ SECURITY RECOVERY: Retrying upload for Voided Session %s\n", sessionID)
+			go uploadSecurityVideo(sessionID, filePath, false, 0)
+		}
+	}
+
+	// 2. Recover Successful Sales
+	var strandedSales []models.Sale
+	database.DB.Where("security_video_url LIKE ?", "PENDING_UPLOAD_%").Find(&strandedSales)
+
+	for _, sale := range strandedSales {
+		sessionID := strings.Replace(sale.SecurityVideoURL, "PENDING_UPLOAD_", "", 1)
+		filePath := filepath.Join(tempDir, fmt.Sprintf("session_%s.mp4", sessionID))
+
+		if _, err := os.Stat(filePath); err == nil {
+			log.Printf("♻️ SECURITY RECOVERY: Retrying upload for Sale Order %d\n", sale.ID)
+			go uploadSecurityVideo(sessionID, filePath, true, sale.ID)
+		}
+	}
 }

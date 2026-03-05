@@ -20,7 +20,12 @@ func main() {
 		log.Println("Warning: No .env file found")
 	}
 
+	// Connect to Database
 	database.Connect()
+
+	// --- NEW FIX: Auto-Recover stranded security videos on boot ---
+	go handlers.RetryFailedUploads()
+	// --------------------------------------------------------------
 
 	// --- NEW: BACKGROUND BACKUP ENGINE ---
 	// 1. Hourly Auto-Backup
