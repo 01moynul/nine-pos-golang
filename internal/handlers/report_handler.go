@@ -93,7 +93,10 @@ func GetSalesReport(c *gin.Context) {
 	}
 
 	// --- 5. RECENT SALES & VOIDED (Filtered) ---
-	recentSalesQuery := database.DB.Order("sale_time desc").Limit(10)
+	// NEW: We add .Preload("Items") and .Preload("Items.Product") so GORM automatically
+	// fetches the line items, quantities, and cost prices for each sale.
+	// This gives the frontend the data it needs for the Digital Receipt and Profit math!
+	recentSalesQuery := database.DB.Preload("Items").Preload("Items.Product").Order("sale_time desc").Limit(10)
 	if !startTime.IsZero() {
 		recentSalesQuery = recentSalesQuery.Where("sale_time >= ?", startTime)
 	}
