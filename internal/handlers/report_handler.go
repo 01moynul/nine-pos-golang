@@ -30,21 +30,36 @@ func GetSalesReport(c *gin.Context) {
 	var data ReportData
 
 	// --- 1. DYNAMIC TIME FILTER LOGIC ---
-	timeframe := c.Query("timeframe") // e.g., "today", "7days", "30days"
+	timeframe := c.Query("timeframe")     // e.g., "today", "7days", "30days", "custom"
+	customStart := c.Query("customStart") // e.g., "2026-03-07T11:00"
+	customEnd := c.Query("customEnd")     // e.g., "2026-03-07T17:00"
+
 	now := time.Now()
 	var startTime time.Time
+	var endTime time.Time // NEW: Upper bound for our shift filter
 
-	switch timeframe {
-	case "today":
-		// Start of today (Midnight)
-		startTime = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	case "7days":
-		startTime = now.AddDate(0, 0, -7)
-	case "30days":
-		startTime = now.AddDate(0, 0, -30)
-	default:
-		// "all" time - startTime remains zero
-		startTime = time.Time{}
+	if timeframe == "custom" && customStart != "" && customEnd != "" {
+		// Parse the HTML5 datetime-local format
+		parsedStart, errStart := time.Parse("2006-01-02T15:04", customStart)
+		if errStart == nil {
+			startTime = parsedStart
+		}
+
+		parsedEnd, errEnd := time.Parse("2006-01-02T15:04", customEnd)
+		if errEnd == nil {
+			endTime = parsedEnd
+		}
+	} else {
+		switch timeframe {
+		case "today":
+			startTime = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+		case "7days":
+			startTime = now.AddDate(0, 0, -7)
+		case "30days":
+			startTime = now.AddDate(0, 0, -30)
+		default:
+			startTime = time.Time{} // "all" time
+		}
 	}
 
 	// --- 2. REVENUE & PROFIT (Filtered) ---
@@ -55,6 +70,9 @@ func GetSalesReport(c *gin.Context) {
 	if !startTime.IsZero() {
 		salesQuery = salesQuery.Where("sales.sale_time >= ?", startTime)
 	}
+	if !endTime.IsZero() {
+		salesQuery = salesQuery.Where("sales.sale_time <= ?", endTime)
+	} // NEW
 
 	row := salesQuery.
 		Select("COALESCE(SUM(sale_items.quantity * sale_items.price_at_sale), 0), COALESCE(SUM(sale_items.quantity * (sale_items.price_at_sale - sale_items.buy_price_rm)), 0)").
@@ -70,6 +88,10 @@ func GetSalesReport(c *gin.Context) {
 	if !startTime.IsZero() {
 		ordersQuery = ordersQuery.Where("sale_time >= ?", startTime)
 	}
+	if !endTime.IsZero() {
+		ordersQuery = ordersQuery.Where("sale_time <= ?", endTime)
+	} // NEW
+
 	if err := ordersQuery.Count(&data.TotalOrders).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to count orders"})
 		return
@@ -85,6 +107,9 @@ func GetSalesReport(c *gin.Context) {
 	if !startTime.IsZero() {
 		topSellingQuery = topSellingQuery.Where("sales.sale_time >= ?", startTime)
 	}
+	if !endTime.IsZero() {
+		topSellingQuery = topSellingQuery.Where("sales.sale_time <= ?", endTime)
+	} // NEW
 
 	err := topSellingQuery.Group("products.name").Order("sold desc").Limit(5).Scan(&data.TopSelling).Error
 	if err != nil {
@@ -93,19 +118,22 @@ func GetSalesReport(c *gin.Context) {
 	}
 
 	// --- 5. RECENT SALES & VOIDED (Filtered) ---
-	// NEW: We add .Preload("Items") and .Preload("Items.Product") so GORM automatically
-	// fetches the line items, quantities, and cost prices for each sale.
-	// This gives the frontend the data it needs for the Digital Receipt and Profit math!
 	recentSalesQuery := database.DB.Preload("Items").Preload("Items.Product").Order("sale_time desc").Limit(10)
 	if !startTime.IsZero() {
 		recentSalesQuery = recentSalesQuery.Where("sale_time >= ?", startTime)
 	}
+	if !endTime.IsZero() {
+		recentSalesQuery = recentSalesQuery.Where("sale_time <= ?", endTime)
+	} // NEW
 	recentSalesQuery.Find(&data.RecentSales)
 
 	voidedQuery := database.DB.Order("timestamp desc").Limit(10)
 	if !startTime.IsZero() {
 		voidedQuery = voidedQuery.Where("timestamp >= ?", startTime)
 	}
+	if !endTime.IsZero() {
+		voidedQuery = voidedQuery.Where("timestamp <= ?", endTime)
+	} // NEW
 	voidedQuery.Find(&data.VoidedSales)
 
 	// Send data to frontend
