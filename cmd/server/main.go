@@ -112,8 +112,9 @@ func main() {
 			// --- NEW: Backup Management Routes ---
 			admin.GET("/backup/list", handlers.GetBackupsList)
 			admin.POST("/backup/manual", handlers.TriggerManualBackup)
-			admin.DELETE("/backup/:id", handlers.DeleteBackup)         // <--- ADD THIS
-			admin.GET("/backup/download/:id", handlers.DownloadBackup) // <--- ADD THIS
+			admin.DELETE("/backup/:id", handlers.DeleteBackup)                    // <--- ADD THIS
+			admin.GET("/backup/download/:id", handlers.DownloadBackup)            // <--- ADD THIS
+			admin.GET("/products/scale-export", handlers.ExportWeighableProducts) // <-- PUT IT BACK HERE
 		}
 	}
 

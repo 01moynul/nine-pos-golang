@@ -17,7 +17,7 @@ type ReportData struct {
 	TotalOrders  int64   `json:"total_orders"`
 	TopSelling   []struct {
 		ProductName string  `json:"product_name"`
-		Sold        int     `json:"sold"`
+		Sold        float64 `json:"sold"`
 		Revenue     float64 `json:"revenue"`
 		Profit      float64 `json:"profit"`
 	} `json:"top_selling"`
@@ -167,7 +167,7 @@ func GetSalesReport(c *gin.Context) {
 // ValuationItem represents a single row in the PDF table
 type ValuationItem struct {
 	Name          string  `json:"name"`
-	Quantity      int     `json:"quantity"`
+	Quantity      float64 `json:"quantity"` // UPGRADED: Changed from int to float64
 	CostPrice     float64 `json:"cost_price"`
 	TotalCost     float64 `json:"total_cost"`
 	SellPrice     float64 `json:"sell_price"`      // NEW: For Profitability View
@@ -222,9 +222,9 @@ func GetStockValuation(c *gin.Context) {
 			}
 		}
 
-		itemTotal := float64(p.StockQuantity) * p.CostPrice
-		profitPerUnit := p.Price - p.CostPrice                  // NEW
-		totalProfit := float64(p.StockQuantity) * profitPerUnit // NEW
+		itemTotal := p.StockQuantity * p.CostPrice     // UPGRADED
+		profitPerUnit := p.Price - p.CostPrice         // NEW
+		totalProfit := p.StockQuantity * profitPerUnit // UPGRADED
 
 		valItem := ValuationItem{
 			Name:          p.Name,
@@ -315,7 +315,7 @@ func GetHistoricalValuation(c *gin.Context) {
 			p.ID, startOfDay, endOfDay,
 		).Find(&dailyLedgers)
 
-		totalAddedToday := 0
+		var totalAddedToday float64 // UPGRADED: Now a decimal
 		for _, ledger := range dailyLedgers {
 			totalAddedToday += ledger.ChangeAmount
 		}
@@ -339,9 +339,9 @@ func GetHistoricalValuation(c *gin.Context) {
 			}
 		}
 
-		itemTotal := float64(totalAddedToday) * p.CostPrice
-		profitPerUnit := p.Price - p.CostPrice                  // NEW
-		totalProfit := float64(totalAddedToday) * profitPerUnit // NEW
+		itemTotal := totalAddedToday * p.CostPrice     // UPGRADED
+		profitPerUnit := p.Price - p.CostPrice         // NEW
+		totalProfit := totalAddedToday * profitPerUnit // UPGRADED
 
 		valItem := ValuationItem{
 			Name:          p.Name,

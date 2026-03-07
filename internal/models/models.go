@@ -13,53 +13,53 @@ type User struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
-// Product - The Inventory (Upgraded for Phase 1 & 3)
+// Product - The Inventory (Upgraded for Phase 1 & 3 & Scale Integration)
 type Product struct {
-	ID              uint    `gorm:"primaryKey" json:"id"`
-	SKU             string  `gorm:"uniqueIndex;size:100" json:"sku"` // Required for Phase 2.1 (Barcodes)
-	Name            string  `json:"name"`
-	Price           float64 `json:"price"`      // SellPriceRM
-	CostPrice       float64 `json:"cost_price"` // BuyPriceRM (Task 3.2 Profit Tracking)
-	Category        string  `json:"category"`
-	StockQuantity   int     `json:"stock_quantity"`    // Acts as StockAvailable
-	StockReserved   int     `json:"stock_reserved"`    // Required for Task 3.1 (Omnichannel Holds)
-	IsSSTApplicable bool    `json:"is_sst_applicable"` // Required for Task 1.3 (Tax Config)
-	ImageURL        string  `json:"image_url"`
-	// --- NEW: Time Tracking ---
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID              uint      `gorm:"primaryKey" json:"id"`
+	SKU             string    `gorm:"uniqueIndex;size:100" json:"sku"`
+	Name            string    `json:"name"`
+	Price           float64   `json:"price"`
+	CostPrice       float64   `json:"cost_price"`
+	Category        string    `json:"category"`
+	StockQuantity   float64   `json:"stock_quantity"` // UPGRADED: Float64 for KG/Grams
+	StockReserved   float64   `json:"stock_reserved"` // UPGRADED: Float64 for KG/Grams
+	IsSSTApplicable bool      `json:"is_sst_applicable"`
+	IsWeighable     bool      `json:"is_weighable"` // NEW: Scale Integration Flag
+	ImageURL        string    `json:"image_url"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 // StockLedger - Enterprise Audit Trail for Inventory Management
 type StockLedger struct {
 	ID           uint      `gorm:"primaryKey" json:"id"`
 	ProductID    uint      `json:"product_id"`
-	Product      Product   `json:"-"`             // Relationship link, hidden from JSON to save bandwidth
-	ChangeAmount int       `json:"change_amount"` // e.g., +50 (Restock) or -2 (Sale)
-	Balance      int       `json:"balance"`       // The total stock AFTER this specific transaction
-	Reason       string    `json:"reason"`        // e.g., "Initial Setup", "Sale: RCPT-123", "Manual Audit"
-	CreatedAt    time.Time `json:"created_at"`    // The exact moment the stock changed
+	Product      Product   `json:"-"`
+	ChangeAmount float64   `json:"change_amount"` // UPGRADED: e.g., +50.5 (Restock) or -1.25 (Sale)
+	Balance      float64   `json:"balance"`       // UPGRADED: Float64
+	Reason       string    `json:"reason"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 // ComboComponent - Required for Task 3.3 (Bundle Engine)
 type ComboComponent struct {
-	ID                 uint `gorm:"primaryKey" json:"id"`
-	BundleProductID    uint `json:"bundle_product_id"`    // e.g., The Promo Basket
-	ComponentProductID uint `json:"component_product_id"` // e.g., The Can of Beans inside it
-	Quantity           int  `json:"quantity"`             // How many beans in the basket
+	ID                 uint    `gorm:"primaryKey" json:"id"`
+	BundleProductID    uint    `json:"bundle_product_id"`
+	ComponentProductID uint    `json:"component_product_id"`
+	Quantity           float64 `json:"quantity"` // UPGRADED: Float64
 }
 
-// Sale - The Transaction Header (Upgraded for LHDN & Phase 7)
+// Sale - The Transaction Header
 type Sale struct {
 	ID               uint       `gorm:"primaryKey" json:"id"`
-	ReceiptID        string     `gorm:"uniqueIndex;size:50" json:"receipt_id"` // Task 7.1 (e.g., RCPT-2026-XYZ)
+	ReceiptID        string     `gorm:"uniqueIndex;size:50" json:"receipt_id"`
 	UserID           uint       `json:"user_id"`
 	TotalAmount      float64    `json:"total_amount"`
 	Status           string     `json:"status"`
 	SaleTime         time.Time  `json:"sale_time"`
-	LHDNValidationID string     `json:"lhdn_validation_id"` // Task 2.2 (Mandatory Tax Compliance)
-	LHDNQRCodeURL    string     `json:"lhdn_qr_code_url"`   // Task 2.2
-	SecurityVideoURL string     `json:"security_video_url"` // NEW: Task 2.4 - Google Drive link for successful checkout video
+	LHDNValidationID string     `json:"lhdn_validation_id"`
+	LHDNQRCodeURL    string     `json:"lhdn_qr_code_url"`
+	SecurityVideoURL string     `json:"security_video_url"`
 	Items            []SaleItem `gorm:"foreignKey:SaleID" json:"items"`
 }
 
@@ -69,16 +69,16 @@ type SaleItem struct {
 	SaleID      uint    `json:"sale_id"`
 	ProductID   uint    `json:"product_id"`
 	Product     Product `json:"product"`
-	Quantity    int     `json:"quantity"`
-	BuyPriceRM  float64 `json:"buy_price_rm"`  // Snapshot of Cost at checkout (Task 3.2)
-	PriceAtSale float64 `json:"price_at_sale"` // Snapshot of Sell Price at checkout
+	Quantity    float64 `json:"quantity"` // UPGRADED: Float64 for 1.5kg
+	BuyPriceRM  float64 `json:"buy_price_rm"`
+	PriceAtSale float64 `json:"price_at_sale"`
 }
 
 // AuditLog - Required for Task 6.2 (Immutable Audits)
 type AuditLog struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
 	UserID    uint      `json:"user_id"`
-	Action    string    `json:"action"` // e.g., "PRICE_OVERRIDE", "REFUND"
+	Action    string    `json:"action"`
 	Details   string    `json:"details"`
 	Timestamp time.Time `json:"timestamp"`
 }
@@ -86,31 +86,31 @@ type AuditLog struct {
 // SystemLicense - Required for Phase 6 DRM Engine
 type SystemLicense struct {
 	ID             uint      `gorm:"primaryKey" json:"id"`
-	LicenseKey     string    `gorm:"uniqueIndex;size:255" json:"license_key"` // Encrypted key
-	ExpirationDate time.Time `json:"expiration_date"`                         // The strict cutoff date
-	IsActive       bool      `json:"is_active"`                               // Toggle for manual overrides
+	LicenseKey     string    `gorm:"uniqueIndex;size:255" json:"license_key"`
+	ExpirationDate time.Time `json:"expiration_date"`
+	IsActive       bool      `json:"is_active"`
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
 }
 
-// VoidedTransaction - Stores data for abandoned or completely cleared carts (Task 2.4)
+// VoidedTransaction - Stores data for abandoned or completely cleared carts
 type VoidedTransaction struct {
 	ID               uint      `gorm:"primaryKey" json:"id"`
-	SessionID        string    `json:"session_id"`         // The temporary ID generated when video recording started
-	UserID           uint      `json:"user_id"`            // The cashier logged in at the time
-	TotalValueLost   float64   `json:"total_value_lost"`   // Total RM value of the cart when it was cleared
-	ItemsInCart      string    `json:"items_in_cart"`      // JSON string of items that were in the cart
-	Reason           string    `json:"reason"`             // e.g., "Clear Order Button", "Trash Can Drop to Zero"
-	SecurityVideoURL string    `json:"security_video_url"` // Link to the Google Drive video showing the void action
+	SessionID        string    `json:"session_id"`
+	UserID           uint      `json:"user_id"`
+	TotalValueLost   float64   `json:"total_value_lost"`
+	ItemsInCart      string    `json:"items_in_cart"`
+	Reason           string    `json:"reason"`
+	SecurityVideoURL string    `json:"security_video_url"`
 	Timestamp        time.Time `json:"timestamp"`
 }
 
-// SuspiciousActivityLog - Stores lightweight pings for partial line voids (Task 2.4)
+// SuspiciousActivityLog - Stores lightweight pings for partial line voids
 type SuspiciousActivityLog struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
-	SessionID string    `json:"session_id"` // Links to the current active video recording session
+	SessionID string    `json:"session_id"`
 	UserID    uint      `json:"user_id"`
-	Action    string    `json:"action"`    // e.g., "PARTIAL_LINE_VOID"
-	ItemName  string    `json:"item_name"` // What exactly was removed from the cart
-	Timestamp time.Time `json:"timestamp"` // Exact time so the manager knows where to scrub in the video
+	Action    string    `json:"action"`
+	ItemName  string    `json:"item_name"`
+	Timestamp time.Time `json:"timestamp"`
 }

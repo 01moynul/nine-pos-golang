@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"bytes"        // NEW
+	"encoding/csv" // NEW
 	"fmt"
 	"net/http"
 	"os"
@@ -85,17 +87,15 @@ func UpdateProduct(c *gin.Context) {
 		return
 	}
 
-	// --- NEW: Ledger Preparation ---
-	// Remember the old stock before we overwrite it
+	// --- UPGRADED: Ledger Preparation (Fractional Weights) ---
 	oldStock := product.StockQuantity
-	var newStock int
+	var newStock float64 // MUST BE float64
 	stockChanged := false
 
 	// Safely check if the incoming JSON contains a change to "stock_quantity"
 	if sq, exists := updateData["stock_quantity"]; exists {
-		// JSON numbers default to float64, so we must safely convert to int
 		if val, ok := sq.(float64); ok {
-			newStock = int(val)
+			newStock = val // Directly use the float64
 			stockChanged = true
 		}
 	}
@@ -130,10 +130,10 @@ func UpdateProduct(c *gin.Context) {
 // SaleRequest defines what the Frontend sends us
 type SaleRequest struct {
 	Items []struct {
-		ProductID int `json:"product_id"`
-		Quantity  int `json:"quantity"`
+		ProductID int     `json:"product_id"`
+		Quantity  float64 `json:"quantity"` // UPGRADED: Float64 for weights
 	} `json:"items"`
-	RequestEInvoice bool `json:"request_einvoice"` // <-- NEW: Catch the toggle from React
+	RequestEInvoice bool `json:"request_einvoice"`
 }
 
 func ProcessSale(c *gin.Context) {
@@ -193,7 +193,7 @@ func ProcessSale(c *gin.Context) {
 		}
 
 		// Calculate Price for this item
-		totalAmount += product.Price * float64(item.Quantity)
+		totalAmount += product.Price * item.Quantity
 
 		// Prepare Sale Item record
 		saleItems = append(saleItems, models.SaleItem{
@@ -340,4 +340,49 @@ func ScanProduct(c *gin.Context) {
 
 	// 6. Return the perfectly formatted product back to the frontend
 	c.JSON(http.StatusOK, product)
+}
+
+// --- GET: /api/products/scale-export ---
+// Generates a .csv file compatible with Rongta / Link64 scale software
+func ExportWeighableProducts(c *gin.Context) {
+	var products []models.Product
+
+	// 1. Only fetch items explicitly marked as weighable
+	if err := database.DB.Where("is_weighable = ?", true).Find(&products).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch weighable products"})
+		return
+	}
+
+	// 2. Create an in-memory CSV writer
+	b := &bytes.Buffer{}
+	writer := csv.NewWriter(b)
+
+	// 3. Write the exact Column Headers expected by the Scale Software
+	writer.Write([]string{"PLU_ID", "Item_Code", "Name", "Price", "UnitType", "BarcodeType"})
+
+	// 4. Loop through the products and write the rows
+	for _, p := range products {
+		pluID := fmt.Sprintf("%d", p.ID)
+		itemCode := p.SKU
+		if itemCode == "" {
+			itemCode = pluID // Fallback if no SKU exists
+		}
+
+		name := p.Name
+		price := fmt.Sprintf("%.2f", p.Price) // Ensure exactly 2 decimal places
+		unitType := "kg"                      // Base unit
+		barcodeType := "13"                   // EAN-13 format for the printed sticker
+
+		writer.Write([]string{pluID, itemCode, name, price, unitType, barcodeType})
+	}
+
+	// Ensure all data is pushed to the buffer
+	writer.Flush()
+
+	// 5. Force the browser to download this as a file instead of displaying it as text
+	c.Header("Content-Description", "File Transfer")
+	c.Header("Content-Disposition", "attachment; filename=rongta_plu_export.csv")
+	c.Header("Content-Type", "text/csv")
+
+	c.String(http.StatusOK, b.String())
 }

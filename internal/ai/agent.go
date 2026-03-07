@@ -113,7 +113,7 @@ func RunAgent(userMessage string, apiKey string) (string, error) {
 				type SimpleProduct struct {
 					ID    uint    `json:"id"`
 					Name  string  `json:"name"`
-					Stock int     `json:"stock"`
+					Stock float64 `json:"stock"` // UPGRADED: Float64
 					Price float64 `json:"price"`
 				}
 				var simpleList []SimpleProduct
@@ -199,7 +199,7 @@ func executeCreateProduct(ctx context.Context, session *genai.ChatSession, funcC
 		Name:          args["name"].(string),
 		Price:         args["price"].(float64),
 		Category:      args["category"].(string),
-		StockQuantity: int(args["stock_quantity"].(float64)),
+		StockQuantity: args["stock_quantity"].(float64), // UPGRADED: Float64
 		ImageURL:      "https://via.placeholder.com/150",
 	}
 	database.DB.Create(&newProd)
