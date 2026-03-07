@@ -9,6 +9,7 @@ import (
 
 	"go-pos-agent/internal/database"
 	"go-pos-agent/internal/models"
+	"go-pos-agent/internal/services"
 	"go-pos-agent/internal/utils"
 
 	"github.com/gin-gonic/gin"
@@ -132,6 +133,7 @@ type SaleRequest struct {
 		ProductID int `json:"product_id"`
 		Quantity  int `json:"quantity"`
 	} `json:"items"`
+	RequestEInvoice bool `json:"request_einvoice"` // <-- NEW: Catch the toggle from React
 }
 
 func ProcessSale(c *gin.Context) {
@@ -142,7 +144,6 @@ func ProcessSale(c *gin.Context) {
 	}
 
 	// Get User ID from the Context (set by Middleware)
-	// (In a real app, use this to track WHO sold it)
 	userID := c.MustGet("userID").(uint)
 
 	// 1. Start a Database Transaction (ACID Safety)
@@ -177,11 +178,10 @@ func ProcessSale(c *gin.Context) {
 			return
 		}
 
-		// --- NEW: Ledger Interceptor ---
-		// We write this inside the 'tx' transaction. If the sale fails, this ledger entry is erased!
+		// --- Ledger Interceptor ---
 		ledgerEntry := models.StockLedger{
 			ProductID:    product.ID,
-			ChangeAmount: -item.Quantity, // Negative because it's leaving the store
+			ChangeAmount: -item.Quantity,
 			Balance:      product.StockQuantity,
 			Reason:       "Sale Checkout",
 			CreatedAt:    time.Now(),
@@ -199,18 +199,17 @@ func ProcessSale(c *gin.Context) {
 		saleItems = append(saleItems, models.SaleItem{
 			ProductID:   product.ID,
 			Quantity:    item.Quantity,
-			BuyPriceRM:  product.CostPrice, // <-- NEW (Task 3.2): Snapshot the Cost Price at exact moment of sale
-			PriceAtSale: product.Price,     // Snapshot the Sell Price at exact moment of sale
+			BuyPriceRM:  product.CostPrice,
+			PriceAtSale: product.Price,
 		})
 	}
 
-	// --- NEW FIX: Generate a Unique Receipt ID (Roadmap Task 2.3) ---
-	// Example Output: RCPT-1709123456
+	// Generate a Unique Receipt ID
 	uniqueReceiptID := fmt.Sprintf("RCPT-%d", time.Now().Unix())
 
 	// 3. Create the Sale Header
 	sale := models.Sale{
-		ReceiptID:   uniqueReceiptID, // <--- THE FIX: Assign the generated ID
+		ReceiptID:   uniqueReceiptID,
 		UserID:      userID,
 		TotalAmount: totalAmount,
 		SaleTime:    time.Now(),
@@ -227,10 +226,27 @@ func ProcessSale(c *gin.Context) {
 	// 4. Commit Transaction
 	tx.Commit()
 
+	// ==========================================
+	// --- NEW: LHDN Sandbox Integration ---
+	// ==========================================
+
+	// Check if the frontend passed a flag requesting an official e-Invoice.
+	customerRequestedEInvoice := req.RequestEInvoice
+
+	var lhdnData services.LHDNResponse
+	if customerRequestedEInvoice {
+		// Ping our isolated LHDN Sandbox Engine.
+		// We pass the finalized 'sale' object so the engine knows what to process.
+		lhdnData = services.SubmitToLHDNSandbox(sale)
+	}
+	// ==========================================
+
+	// 5. Final Response Payload
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Sale successful!",
 		"sale_id": sale.ID,
 		"total":   totalAmount,
+		"lhdn":    lhdnData, // <-- NEW: Passes the Mock QR URL and Validation ID back to React
 	})
 }
 
