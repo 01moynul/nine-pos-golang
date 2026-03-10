@@ -23,4 +23,13 @@ timeout /t 1 /nobreak > NUL
 
 :: 5. Open Customer View on the RIGHT half of the screen (Starts at pixel 960)
 start chrome --app="http://localhost:8080/customer-display"
+
+:: 6. Wait 1 second before launching Google Meet
+timeout /t 1 /nobreak > NUL
+
+echo Opening Google Meet...
+
+:: 7. Open Google Meet (Auto-allows camera/mic permissions)
+start chrome --use-fake-ui-for-media-stream "https://meet.google.com/zty-dbww-dwo"
+
 exit
