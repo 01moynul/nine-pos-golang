@@ -4,6 +4,15 @@ echo =========================================
 echo    Starting Nine-POS Enterprise Engine...
 echo =========================================
 echo.
+
+echo Cleaning up old sessions to prevent duplicates...
+:: 0. Close existing POS server and ALL Google Chrome windows
+taskkill /F /IM "NinePOS.exe" /T > NUL 2>&1
+taskkill /F /IM "chrome.exe" /T > NUL 2>&1
+
+:: Wait 1 second to ensure everything is fully closed
+timeout /t 1 /nobreak > NUL
+
 echo Please do not close this window while using the POS.
 
 :: 1. Start the Go Server
@@ -29,7 +38,7 @@ timeout /t 1 /nobreak > NUL
 
 echo Opening Google Meet...
 
-:: 7. Open Google Meet (Auto-allows camera/mic permissions)
+:: 7. Open Google Meet with your new recurring link (Auto-allows camera/mic permissions)
 start chrome --use-fake-ui-for-media-stream "https://meet.google.com/zty-dbww-dwo"
 
 exit
