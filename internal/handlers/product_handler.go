@@ -1,8 +1,7 @@
 package handlers
 
 import (
-	"bytes"        // NEW
-	"encoding/csv" // NEW
+	"bytes"
 	"fmt"
 	"net/http"
 	"os"
@@ -15,6 +14,7 @@ import (
 	"go-pos-agent/internal/utils"
 
 	"github.com/gin-gonic/gin"
+	"github.com/xuri/excelize/v2"
 	"gorm.io/gorm/clause"
 )
 
@@ -343,7 +343,7 @@ func ScanProduct(c *gin.Context) {
 }
 
 // --- GET: /api/products/scale-export ---
-// Generates a .csv file compatible with Rongta / Link64 scale software
+// Generates a native .xlsx file compatible with advanced scale software
 func ExportWeighableProducts(c *gin.Context) {
 	var products []models.Product
 
@@ -353,36 +353,50 @@ func ExportWeighableProducts(c *gin.Context) {
 		return
 	}
 
-	// 2. Create an in-memory CSV writer
-	b := &bytes.Buffer{}
-	writer := csv.NewWriter(b)
+	// 2. Initialize a new Excel File
+	f := excelize.NewFile()
+	defer func() {
+		if err := f.Close(); err != nil {
+			fmt.Println("Error closing excel file:", err)
+		}
+	}()
 
-	// 3. Write the exact Column Headers expected by the Scale Software
-	writer.Write([]string{"PLU_ID", "Item_Code", "Name", "Price", "UnitType", "BarcodeType"})
+	// 3. Write the exact Column Headers expected by the Scale Software (Row 1)
+	headers := []string{"PLU_ID", "Item_Code", "Name", "Price", "UnitType", "BarcodeType"}
+	for i, header := range headers {
+		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
+		f.SetCellValue("Sheet1", cell, header)
+	}
 
-	// 4. Loop through the products and write the rows
-	for _, p := range products {
+	// 4. Loop through the products and write the rows (Starting at Row 2)
+	for i, p := range products {
+		row := i + 2 // i starts at 0, headers are on row 1
+
 		pluID := fmt.Sprintf("%d", p.ID)
 		itemCode := p.SKU
 		if itemCode == "" {
 			itemCode = pluID // Fallback if no SKU exists
 		}
 
-		name := p.Name
-		price := fmt.Sprintf("%.2f", p.Price) // Ensure exactly 2 decimal places
-		unitType := "kg"                      // Base unit
-		barcodeType := "13"                   // EAN-13 format for the printed sticker
-
-		writer.Write([]string{pluID, itemCode, name, price, unitType, barcodeType})
+		f.SetCellValue("Sheet1", fmt.Sprintf("A%d", row), pluID)
+		f.SetCellValue("Sheet1", fmt.Sprintf("B%d", row), itemCode)
+		f.SetCellValue("Sheet1", fmt.Sprintf("C%d", row), p.Name)
+		f.SetCellValue("Sheet1", fmt.Sprintf("D%d", row), p.Price) // Excelize handles floats automatically
+		f.SetCellValue("Sheet1", fmt.Sprintf("E%d", row), "kg")    // Base unit
+		f.SetCellValue("Sheet1", fmt.Sprintf("F%d", row), "13")    // EAN-13 format for the printed sticker
 	}
 
-	// Ensure all data is pushed to the buffer
-	writer.Flush()
+	// 5. Write the Excel file to a memory buffer
+	var b bytes.Buffer
+	if err := f.Write(&b); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate Excel file"})
+		return
+	}
 
-	// 5. Force the browser to download this as a file instead of displaying it as text
+	// 6. Force the browser to download this as a native Excel file (.xlsx)
 	c.Header("Content-Description", "File Transfer")
-	c.Header("Content-Disposition", "attachment; filename=rongta_plu_export.csv")
-	c.Header("Content-Type", "text/csv")
+	c.Header("Content-Disposition", "attachment; filename=rongta_plu_export.xlsx")
+	c.Header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
-	c.String(http.StatusOK, b.String())
+	c.Data(http.StatusOK, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", b.Bytes())
 }
