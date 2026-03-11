@@ -34,6 +34,7 @@ func GetSalesReport(c *gin.Context) {
 	customStart := c.Query("customStart") // e.g., "2026-03-07T11:00"
 	customEnd := c.Query("customEnd")     // e.g., "2026-03-07T17:00"
 	searchQuery := c.Query("search")      // NEW: Item-specific filter
+	categoryFilter := c.Query("category") // --- NEW: Category filter ---
 
 	now := time.Now()
 	var startTime time.Time
@@ -66,10 +67,15 @@ func GetSalesReport(c *gin.Context) {
 		Joins("JOIN sales ON sale_items.sale_id = sales.id").
 		Where("sales.status = ?", "completed")
 
-	// NEW: Inject Product Search Filter
+	// --- UPGRADED: Inject Product Search & Category Filters ---
+	if searchQuery != "" || (categoryFilter != "" && categoryFilter != "All") {
+		salesQuery = salesQuery.Joins("JOIN products ON sale_items.product_id = products.id")
+	}
 	if searchQuery != "" {
-		salesQuery = salesQuery.Joins("JOIN products ON sale_items.product_id = products.id").
-			Where("products.name LIKE ? OR products.sku LIKE ?", "%"+searchQuery+"%", "%"+searchQuery+"%")
+		salesQuery = salesQuery.Where("products.name LIKE ? OR products.sku LIKE ?", "%"+searchQuery+"%", "%"+searchQuery+"%")
+	}
+	if categoryFilter != "" && categoryFilter != "All" {
+		salesQuery = salesQuery.Where("products.category = ?", categoryFilter)
 	}
 
 	if !startTime.IsZero() {
@@ -91,9 +97,16 @@ func GetSalesReport(c *gin.Context) {
 	// --- 3. TOTAL ORDERS (Filtered) ---
 	ordersQuery := database.DB.Model(&models.Sale{}).Where("status = ?", "completed")
 
-	// NEW: Inject Product Search Filter (Subquery to avoid duplicate counts)
-	if searchQuery != "" {
-		ordersQuery = ordersQuery.Where("id IN (SELECT sale_id FROM sale_items JOIN products ON sale_items.product_id = products.id WHERE products.name LIKE ? OR products.sku LIKE ?)", "%"+searchQuery+"%", "%"+searchQuery+"%")
+	// --- UPGRADED: Inject Product Search & Category Filters (Subquery) ---
+	if searchQuery != "" || (categoryFilter != "" && categoryFilter != "All") {
+		subQuery := database.DB.Table("sale_items").Select("sale_items.sale_id").Joins("JOIN products ON sale_items.product_id = products.id")
+		if searchQuery != "" {
+			subQuery = subQuery.Where("products.name LIKE ? OR products.sku LIKE ?", "%"+searchQuery+"%", "%"+searchQuery+"%")
+		}
+		if categoryFilter != "" && categoryFilter != "All" {
+			subQuery = subQuery.Where("products.category = ?", categoryFilter)
+		}
+		ordersQuery = ordersQuery.Where("id IN (?)", subQuery)
 	}
 
 	if !startTime.IsZero() {
@@ -115,9 +128,12 @@ func GetSalesReport(c *gin.Context) {
 		Joins("JOIN sales ON sale_items.sale_id = sales.id").
 		Where("sales.status = ?", "completed")
 
-	// NEW: Inject Product Search Filter
+	// --- UPGRADED: Inject Product Search & Category Filters ---
 	if searchQuery != "" {
 		topSellingQuery = topSellingQuery.Where("products.name LIKE ? OR products.sku LIKE ?", "%"+searchQuery+"%", "%"+searchQuery+"%")
+	}
+	if categoryFilter != "" && categoryFilter != "All" {
+		topSellingQuery = topSellingQuery.Where("products.category = ?", categoryFilter)
 	}
 
 	if !startTime.IsZero() {
@@ -136,9 +152,16 @@ func GetSalesReport(c *gin.Context) {
 	// --- 5. RECENT SALES & VOIDED (Filtered) ---
 	recentSalesQuery := database.DB.Preload("Items").Preload("Items.Product").Order("sale_time desc").Limit(10)
 
-	// NEW: Inject Product Search Filter
-	if searchQuery != "" {
-		recentSalesQuery = recentSalesQuery.Where("id IN (SELECT sale_id FROM sale_items JOIN products ON sale_items.product_id = products.id WHERE products.name LIKE ? OR products.sku LIKE ?)", "%"+searchQuery+"%", "%"+searchQuery+"%")
+	// --- UPGRADED: Inject Product Search & Category Filters (Subquery) ---
+	if searchQuery != "" || (categoryFilter != "" && categoryFilter != "All") {
+		subQuery := database.DB.Table("sale_items").Select("sale_items.sale_id").Joins("JOIN products ON sale_items.product_id = products.id")
+		if searchQuery != "" {
+			subQuery = subQuery.Where("products.name LIKE ? OR products.sku LIKE ?", "%"+searchQuery+"%", "%"+searchQuery+"%")
+		}
+		if categoryFilter != "" && categoryFilter != "All" {
+			subQuery = subQuery.Where("products.category = ?", categoryFilter)
+		}
+		recentSalesQuery = recentSalesQuery.Where("id IN (?)", subQuery)
 	}
 
 	if !startTime.IsZero() {
