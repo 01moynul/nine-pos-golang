@@ -86,6 +86,9 @@ func main() {
 		api.GET("/products/scan/:barcode", handlers.ScanProduct)
 		// --- NEW: SMART SECURITY ROUTES (Task 2.4) ---
 		security := api.Group("/security")
+		// --- ADD THIS NEW LINE ---
+		api.POST("/printer/kick-drawer", handlers.KickDrawer)
+
 		{
 			security.POST("/start", handlers.StartRecording)
 			security.POST("/log-removal", handlers.LogRemoval)
