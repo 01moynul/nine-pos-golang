@@ -6,9 +6,9 @@ echo =========================================
 echo.
 
 echo Cleaning up old sessions to prevent duplicates...
-:: 0. Close existing POS server and ALL Google Chrome windows
+:: 0. Close existing POS server and ALL Edge windows
 taskkill /F /IM "NinePOS.exe" /T > NUL 2>&1
-taskkill /F /IM "chrome.exe" /T > NUL 2>&1
+taskkill /F /IM "msedge.exe" /T > NUL 2>&1
 
 :: Wait 1 second to ensure everything is fully closed
 timeout /t 1 /nobreak > NUL
@@ -24,13 +24,12 @@ timeout /t 3 /nobreak > NUL
 echo Opening Cashier Dashboard and Customer Display...
 
 :: 3. Open Cashier View on the LEFT half of the screen
-:: --app hides the browser UI. --window-position=X,Y sets the starting point. --window-size=W,H sets the size.
-start chrome --app="http://localhost:8080/dashboard"
+start msedge --app="http://localhost:8080/dashboard"
 
 :: 4. Wait 1 second to ensure the first window opens smoothly
 timeout /t 1 /nobreak > NUL
 
-:: 5. Open Customer View on the RIGHT half of the screen (Starts at pixel 960)
-start chrome --app="http://localhost:8080/customer-display"
+:: 5. Open Customer View on the RIGHT half of the screen
+start msedge --app="http://localhost:8080/customer-display"
 
 exit
