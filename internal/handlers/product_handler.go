@@ -361,8 +361,16 @@ func ExportWeighableProducts(c *gin.Context) {
 		}
 	}()
 
-	// 3. Write the exact Column Headers expected by the Scale Software (Row 1)
-	headers := []string{"PLU_ID", "Item_Code", "Name", "Price", "UnitType", "BarcodeType"}
+	// 3. Write the exact Column Headers expected by the Rongta Scale Software (Row 1)
+	// We include all 24 columns to guarantee perfect copy-paste alignment.
+	headers := []string{
+		"Hotkey", "Name", "LFCode", "Code", "Barcode Type", "Unit Price",
+		"Unit Weight", "Unit Amount", "Department", "PT Weight", "Shelf Time",
+		"Pack Type", "Tare", "Error(%)", "Message1", "Message2", "Label",
+		"Discount/Table", "Account", "sPluFieldTitle20", "Account",
+		"Recommend days", "nutrition", "Ice(%)",
+	}
+
 	for i, header := range headers {
 		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
 		f.SetCellValue("Sheet1", cell, header)
@@ -372,18 +380,46 @@ func ExportWeighableProducts(c *gin.Context) {
 	for i, p := range products {
 		row := i + 2 // i starts at 0, headers are on row 1
 
-		pluID := fmt.Sprintf("%d", p.ID)
 		itemCode := p.SKU
 		if itemCode == "" {
-			itemCode = pluID // Fallback if no SKU exists
+			itemCode = fmt.Sprintf("%d", p.ID) // Fallback if no SKU exists
 		}
 
-		f.SetCellValue("Sheet1", fmt.Sprintf("A%d", row), pluID)
-		f.SetCellValue("Sheet1", fmt.Sprintf("B%d", row), itemCode)
-		f.SetCellValue("Sheet1", fmt.Sprintf("C%d", row), p.Name)
-		f.SetCellValue("Sheet1", fmt.Sprintf("D%d", row), p.Price) // Excelize handles floats automatically
-		f.SetCellValue("Sheet1", fmt.Sprintf("E%d", row), "kg")    // Base unit
-		f.SetCellValue("Sheet1", fmt.Sprintf("F%d", row), "13")    // EAN-13 format for the printed sticker
+		// --- SMART HOTKEY LOGIC ---
+		// Convert the 5-digit SKU (e.g., "00007") into a simple scale key (7).
+		pluInt, err := strconv.Atoi(itemCode)
+		var hotkey string
+		if err == nil && pluInt > 0 {
+			hotkey = fmt.Sprintf("%d", pluInt)
+		} else {
+			hotkey = fmt.Sprintf("%d", i+1)
+		}
+
+		// Fill out the 24 columns with your real data and safe Rongta defaults
+		f.SetCellValue("Sheet1", fmt.Sprintf("A%d", row), hotkey)   // Hotkey
+		f.SetCellValue("Sheet1", fmt.Sprintf("B%d", row), p.Name)   // Name
+		f.SetCellValue("Sheet1", fmt.Sprintf("C%d", row), hotkey)   // LFCode
+		f.SetCellValue("Sheet1", fmt.Sprintf("D%d", row), itemCode) // Code (SKU)
+		f.SetCellValue("Sheet1", fmt.Sprintf("E%d", row), 13)       // Barcode Type
+		f.SetCellValue("Sheet1", fmt.Sprintf("F%d", row), p.Price)  // Unit Price
+		f.SetCellValue("Sheet1", fmt.Sprintf("G%d", row), "Kg")     // Unit Weight
+		f.SetCellValue("Sheet1", fmt.Sprintf("H%d", row), 0)        // Unit Amount
+		f.SetCellValue("Sheet1", fmt.Sprintf("I%d", row), 21)       // Department
+		f.SetCellValue("Sheet1", fmt.Sprintf("J%d", row), "0.000")  // PT Weight
+		f.SetCellValue("Sheet1", fmt.Sprintf("K%d", row), 15)       // Shelf Time
+		f.SetCellValue("Sheet1", fmt.Sprintf("L%d", row), "Normal") // Pack Type
+		f.SetCellValue("Sheet1", fmt.Sprintf("M%d", row), "0.000")  // Tare
+		f.SetCellValue("Sheet1", fmt.Sprintf("N%d", row), 0)        // Error(%)
+		f.SetCellValue("Sheet1", fmt.Sprintf("O%d", row), 0)        // Message1
+		f.SetCellValue("Sheet1", fmt.Sprintf("P%d", row), 0)        // Message2
+		f.SetCellValue("Sheet1", fmt.Sprintf("Q%d", row), 0)        // Label
+		f.SetCellValue("Sheet1", fmt.Sprintf("R%d", row), 0)        // Discount/Table
+		f.SetCellValue("Sheet1", fmt.Sprintf("S%d", row), 0)        // Account
+		f.SetCellValue("Sheet1", fmt.Sprintf("T%d", row), "")       // sPluFieldTitle20
+		f.SetCellValue("Sheet1", fmt.Sprintf("U%d", row), 0)        // Account
+		f.SetCellValue("Sheet1", fmt.Sprintf("V%d", row), 0)        // Recommend days
+		f.SetCellValue("Sheet1", fmt.Sprintf("W%d", row), 0)        // nutrition
+		f.SetCellValue("Sheet1", fmt.Sprintf("X%d", row), 0)        // Ice(%)
 	}
 
 	// 5. Write the Excel file to a memory buffer
