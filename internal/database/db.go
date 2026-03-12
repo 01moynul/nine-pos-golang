@@ -68,6 +68,7 @@ func Connect() {
 		// --- NEW: Smart Security Tables (Task 2.4) ---
 		&models.VoidedTransaction{},
 		&models.SuspiciousActivityLog{},
+		&models.Expense{}, // <--- ADD THIS LINE
 	)
 	if err != nil {
 		log.Fatal("❌ Failed to migrate database:", err)

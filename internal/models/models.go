@@ -114,3 +114,14 @@ type SuspiciousActivityLog struct {
 	ItemName  string    `json:"item_name"`
 	Timestamp time.Time `json:"timestamp"`
 }
+
+// Expense - Tracks operational overhead (wages, rent, utilities, etc.)
+type Expense struct {
+	ID          uint      `gorm:"primaryKey" json:"id"`
+	ExpenseType string    `json:"expense_type"` // e.g., "Utilities", "Salary", "Restock", "Petty Cash"
+	Amount      float64   `json:"amount"`
+	Date        time.Time `json:"date"`
+	Description string    `json:"description"`
+	LoggedBy    string    `json:"logged_by"` // The username of the admin who recorded it
+	CreatedAt   time.Time `json:"created_at"`
+}

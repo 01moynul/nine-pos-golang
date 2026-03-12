@@ -118,6 +118,10 @@ func main() {
 			admin.DELETE("/backup/:id", handlers.DeleteBackup)                    // <--- ADD THIS
 			admin.GET("/backup/download/:id", handlers.DownloadBackup)            // <--- ADD THIS
 			admin.GET("/products/scale-export", handlers.ExportWeighableProducts) // <-- PUT IT BACK HERE
+			// --- NEW: Shop Expenses Management ---
+			admin.POST("/expenses", handlers.CreateExpense)
+			admin.GET("/expenses", handlers.GetExpenses)
+			admin.DELETE("/expenses/:id", handlers.DeleteExpense)
 		}
 	}
 
