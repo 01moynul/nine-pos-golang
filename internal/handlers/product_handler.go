@@ -133,7 +133,9 @@ type SaleRequest struct {
 		ProductID int     `json:"product_id"`
 		Quantity  float64 `json:"quantity"` // UPGRADED: Float64 for weights
 	} `json:"items"`
-	RequestEInvoice bool `json:"request_einvoice"`
+	RequestEInvoice bool    `json:"request_einvoice"`
+	PaymentMethod   string  `json:"payment_method"`  // <-- NEW: Catch from React
+	AmountTendered  float64 `json:"amount_tendered"` // <-- NEW: Catch from React
 }
 
 func ProcessSale(c *gin.Context) {
@@ -209,12 +211,14 @@ func ProcessSale(c *gin.Context) {
 
 	// 3. Create the Sale Header
 	sale := models.Sale{
-		ReceiptID:   uniqueReceiptID,
-		UserID:      userID,
-		TotalAmount: totalAmount,
-		SaleTime:    time.Now(),
-		Status:      "completed",
-		Items:       saleItems,
+		ReceiptID:      uniqueReceiptID,
+		UserID:         userID,
+		TotalAmount:    totalAmount,
+		PaymentMethod:  req.PaymentMethod,  // <-- NEW: Save to Database
+		AmountTendered: req.AmountTendered, // <-- NEW: Save to Database
+		SaleTime:       time.Now(),
+		Status:         "completed",
+		Items:          saleItems,
 	}
 
 	if err := tx.Create(&sale).Error; err != nil {

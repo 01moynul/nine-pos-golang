@@ -65,10 +65,12 @@ func Connect() {
 		&models.AuditLog{},
 		&models.StockLedger{},
 		&models.SystemLicense{},
-		// --- NEW: Smart Security Tables (Task 2.4) ---
 		&models.VoidedTransaction{},
 		&models.SuspiciousActivityLog{},
-		&models.Expense{}, // <--- ADD THIS LINE
+		&models.Expense{},
+		// --- NEW: Till Management Tables ---
+		&models.ShiftLog{},      // <--- ADD THIS LINE
+		&models.StoreSettings{}, // <--- ADD THIS LINE
 	)
 	if err != nil {
 		log.Fatal("❌ Failed to migrate database:", err)
@@ -110,4 +112,17 @@ func seedInitialUsers() {
 
 		log.Println("✅ Default Master Admin (admin/admin123) and Staff (cashier/staff123) created successfully!")
 	}
+
+	// --- NEW: Seed Default Store Settings ---
+	// Check if any settings exist. If not, create the default row.
+	var settingsCount int64
+	DB.Model(&models.StoreSettings{}).Count(&settingsCount)
+	if settingsCount == 0 {
+		defaultSettings := models.StoreSettings{
+			EnableShiftTracking: true, // Default to ON for the new feature
+		}
+		DB.Create(&defaultSettings)
+		log.Println("✅ Default Store Settings seeded (Shift Tracking: ENABLED)")
+	}
+
 }

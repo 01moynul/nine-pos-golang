@@ -341,6 +341,12 @@ func uploadSecurityVideo(sessionID string, localFilePath string, isSuccess bool,
 
 	if isSuccess {
 		database.DB.Model(&models.Sale{}).Where("id = ?", orderID).Update("security_video_url", videoLink)
+	} else if strings.HasPrefix(sessionID, "shift_open_") {
+		// --- NEW: Route morning float videos to the ShiftLog table ---
+		database.DB.Model(&models.ShiftLog{}).Where("id = ?", orderID).Update("opening_video_url", videoLink)
+	} else if strings.HasPrefix(sessionID, "shift_close_") {
+		// --- NEW: Route End-of-Day count videos to the ShiftLog table ---
+		database.DB.Model(&models.ShiftLog{}).Where("id = ?", orderID).Update("closing_video_url", videoLink)
 	} else {
 		// Because Voided transactions might not have a clean ID yet, we find by the SessionID placeholder
 		database.DB.Model(&models.VoidedTransaction{}).Where("security_video_url = ?", searchStr).Update("security_video_url", videoLink)

@@ -55,6 +55,8 @@ type Sale struct {
 	ReceiptID        string     `gorm:"uniqueIndex;size:50" json:"receipt_id"`
 	UserID           uint       `json:"user_id"`
 	TotalAmount      float64    `json:"total_amount"`
+	PaymentMethod    string     `json:"payment_method"`  // <-- NEW: Tracks Cash, QR, or Card
+	AmountTendered   float64    `json:"amount_tendered"` // <-- NEW: Tracks what the customer actually handed over
 	Status           string     `json:"status"`
 	SaleTime         time.Time  `json:"sale_time"`
 	LHDNValidationID string     `json:"lhdn_validation_id"`
@@ -124,4 +126,36 @@ type Expense struct {
 	Description string    `json:"description"`
 	LoggedBy    string    `json:"logged_by"` // The username of the admin who recorded it
 	CreatedAt   time.Time `json:"created_at"`
+}
+
+// ShiftLog - Tracks the morning cash box and daily shift totals (Till Management)
+type ShiftLog struct {
+	ID                uint       `gorm:"primaryKey" json:"id"`
+	OpenedAt          time.Time  `json:"opened_at"`
+	ClosedAt          *time.Time `json:"closed_at"`
+	OpenedBy          string     `json:"opened_by"`
+	ClosedBy          string     `json:"closed_by"`
+	OpeningCash       float64    `json:"opening_cash"`
+	ExpectedCash      float64    `json:"expected_cash"`
+	ActualClosingCash float64    `json:"actual_closing_cash"`
+	OverShortAmount   float64    `json:"over_short_amount"`
+
+	TotalCash float64 `json:"total_cash"`
+	CashCount int     `json:"cash_count"` // <-- NEW: Tracks number of cash sales
+	TotalQR   float64 `json:"total_qr"`
+	QRCount   int     `json:"qr_count"` // <-- NEW: Tracks number of QR sales
+	TotalCard float64 `json:"total_card"`
+	CardCount int     `json:"card_count"` // <-- NEW: Tracks number of Card sales
+
+	Status string `json:"status"`
+
+	// --- NEW: Security Audit Links ---
+	OpeningVideoURL string `json:"opening_video_url"` // Link to the 15s morning float video
+	ClosingVideoURL string `json:"closing_video_url"` // Link to the End-of-Day cash count video
+}
+
+// StoreSettings - Master configuration table (Admin Kill Switches)
+type StoreSettings struct {
+	ID                  uint `gorm:"primaryKey" json:"id"`
+	EnableShiftTracking bool `json:"enable_shift_tracking"` // If false, the POS ignores all shift locks
 }

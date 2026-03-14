@@ -89,6 +89,15 @@ func main() {
 		// --- ADD THIS NEW LINE ---
 		api.POST("/printer/kick-drawer", handlers.KickDrawer)
 
+		// --- NEW: TILL MANAGEMENT (Shift Logs) ---
+		api.GET("/settings", handlers.GetStoreSettings)
+		api.GET("/shift/active", handlers.GetActiveShift)
+		api.GET("/shift/history", handlers.GetShiftHistory) // <--- ADD THIS NEW LINE
+		api.POST("/shift/unlock", handlers.UnlockRegister)
+		api.POST("/shift/open", handlers.OpenShift)
+		api.POST("/shift/close", handlers.CloseShift)
+		// ------------------------------------------
+
 		{
 			security.POST("/start", handlers.StartRecording)
 			security.POST("/log-removal", handlers.LogRemoval)
