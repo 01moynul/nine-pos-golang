@@ -49,11 +49,29 @@ func AuthMiddleware() gin.HandlerFunc {
 	}
 }
 
-// RequireRole is a secondary guard that checks for specific permissions
-func RequireRole(allowedRole string) gin.HandlerFunc {
+// RequireRoles is a secondary guard that checks for specific permissions
+// It accepts multiple roles (e.g., "admin", "supervisor")
+func RequireRoles(allowedRoles ...string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		role, exists := c.Get("role")
-		if !exists || role != allowedRole {
+		if !exists {
+			c.JSON(http.StatusForbidden, gin.H{"error": "You do not have permission to access this resource"})
+			c.Abort()
+			return
+		}
+
+		userRole := role.(string)
+		hasPermission := false
+
+		// Loop through the allowed roles to see if the user's role matches any of them
+		for _, allowedRole := range allowedRoles {
+			if userRole == allowedRole {
+				hasPermission = true
+				break
+			}
+		}
+
+		if !hasPermission {
 			c.JSON(http.StatusForbidden, gin.H{"error": "You do not have permission to access this resource"})
 			c.Abort()
 			return

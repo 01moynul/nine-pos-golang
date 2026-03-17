@@ -106,31 +106,45 @@ func main() {
 		}
 		// ----------------------------------------------
 
-		// ADMIN ONLY
-		admin := api.Group("/")
-		admin.Use(middleware.RequireRole("admin"))
+		// --- MANAGEMENT ONLY (Admin + Supervisor) ---
+		management := api.Group("/")
+		management.Use(middleware.RequireRoles("admin", "supervisor"))
 		{
-			// AI is now restricted to Admin
-			admin.POST("/ask", handlers.AskAI) // <--- MOVED HERE
+			management.POST("/upload", handlers.UploadImage)
+			management.POST("/products", handlers.AddProduct)
+			management.PUT("/products/:id", handlers.UpdateProduct)
+			management.GET("/reports/valuation", handlers.GetStockValuation) // Inventory Report
+		}
 
-			admin.POST("/upload", handlers.UploadImage)
-			admin.POST("/products", handlers.AddProduct)
-			admin.PUT("/products/:id", handlers.UpdateProduct)
-			admin.DELETE("/products/:id", handlers.DeleteProduct)
+		// --- ADMIN ONLY (Strict Financials & Deletions) ---
+		admin := api.Group("/")
+		admin.Use(middleware.RequireRoles("admin"))
+		{
+			// AI is restricted to Admin
+			admin.POST("/ask", handlers.AskAI)
+
+			admin.DELETE("/products/:id", handlers.DeleteProduct) // Supervisors cannot delete
 			admin.GET("/reports", handlers.GetSalesReport)
-			// --- NEW: Stock Valuation Reports ---
-			admin.GET("/reports/valuation", handlers.GetStockValuation)
-			admin.GET("/reports/valuation/history", handlers.GetHistoricalValuation) // <--- ADD THIS LINE
-			// --- NEW: Backup Management Routes ---
+			admin.GET("/reports/valuation/history", handlers.GetHistoricalValuation)
+
+			// Backup Management Routes
 			admin.GET("/backup/list", handlers.GetBackupsList)
 			admin.POST("/backup/manual", handlers.TriggerManualBackup)
-			admin.DELETE("/backup/:id", handlers.DeleteBackup)                    // <--- ADD THIS
-			admin.GET("/backup/download/:id", handlers.DownloadBackup)            // <--- ADD THIS
-			admin.GET("/products/scale-export", handlers.ExportWeighableProducts) // <-- PUT IT BACK HERE
-			// --- NEW: Shop Expenses Management ---
+			admin.DELETE("/backup/:id", handlers.DeleteBackup)
+			admin.GET("/backup/download/:id", handlers.DownloadBackup)
+
+			admin.GET("/products/scale-export", handlers.ExportWeighableProducts)
+
+			// Shop Expenses Management
 			admin.POST("/expenses", handlers.CreateExpense)
 			admin.GET("/expenses", handlers.GetExpenses)
 			admin.DELETE("/expenses/:id", handlers.DeleteExpense)
+
+			// --- NEW: User Management Routes ---
+			admin.GET("/users", handlers.GetUsers)
+			admin.POST("/users", handlers.CreateUser)
+			admin.PUT("/users/:id", handlers.UpdateUser)
+			admin.DELETE("/users/:id", handlers.DeleteUser)
 		}
 	}
 

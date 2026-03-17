@@ -86,43 +86,55 @@ func seedInitialUsers() {
 	var count int64
 	DB.Model(&models.User{}).Count(&count)
 
+	// 1. If DB is COMPLETELY empty, create Admin and Staff
 	if count == 0 {
 		log.Println("⚠️ No users found in database. Generating default accounts...")
 
-		// Hash the default passwords
 		adminHash, _ := bcrypt.GenerateFromPassword([]byte("RWZxXxaYkyK3C@@ZR$SX%RPg"), bcrypt.DefaultCost)
 		staffHash, _ := bcrypt.GenerateFromPassword([]byte("q33&Lq*aMGzRC1j&j^wRub*H"), bcrypt.DefaultCost)
 
-		// Create Master Admin
 		admin := models.User{
 			Username:     "admin",
-			PasswordHash: string(adminHash), // <--- Change this field name!
+			PasswordHash: string(adminHash),
 			Role:         "admin",
 		}
-
-		// Create Default Cashier
 		staff := models.User{
 			Username:     "cashier",
-			PasswordHash: string(staffHash), // <--- Change this field name!
+			PasswordHash: string(staffHash),
 			Role:         "staff",
 		}
 
 		DB.Create(&admin)
 		DB.Create(&staff)
-
-		log.Println("✅ Default Master Admin (admin/admin123) and Staff (cashier/staff123) created successfully!")
+		log.Println("✅ Default Master Admin and Staff created successfully!")
 	}
 
-	// --- NEW: Seed Default Store Settings ---
-	// Check if any settings exist. If not, create the default row.
+	// 2. ALWAYS check specifically if a Supervisor exists (Fixes the missing account bug)
+	var supervisorCount int64
+	DB.Model(&models.User{}).Where("role = ?", "supervisor").Count(&supervisorCount)
+
+	if supervisorCount == 0 {
+		log.Println("⚠️ Supervisor account missing. Generating default supervisor...")
+		supervisorHash, _ := bcrypt.GenerateFromPassword([]byte("w^5ZYwacDHJLRXmHa7*XKs5#"), bcrypt.DefaultCost)
+
+		supervisor := models.User{
+			Username:     "supervisor",
+			PasswordHash: string(supervisorHash),
+			Role:         "supervisor",
+		}
+
+		DB.Create(&supervisor)
+		log.Println("✅ Default Supervisor created successfully!")
+	}
+
+	// 3. Seed Default Store Settings
 	var settingsCount int64
 	DB.Model(&models.StoreSettings{}).Count(&settingsCount)
 	if settingsCount == 0 {
 		defaultSettings := models.StoreSettings{
-			EnableShiftTracking: true, // Default to ON for the new feature
+			EnableShiftTracking: true,
 		}
 		DB.Create(&defaultSettings)
-		log.Println("✅ Default Store Settings seeded (Shift Tracking: ENABLED)")
+		log.Println("✅ Default Store Settings seeded")
 	}
-
 }

@@ -54,10 +54,15 @@ func Login(c *gin.Context) {
 	})
 }
 
-// --- ADD THIS AT THE BOTTOM ---
+// RegisterRequest defines the expected JSON payload for creating a new account
+type RegisterRequest struct {
+	Username string `json:"username" binding:"required"`
+	Password string `json:"password" binding:"required"`
+	Role     string `json:"role"` // Optional: allows us to pass "supervisor"
+}
 
 func Register(c *gin.Context) {
-	var input LoginRequest
+	var input RegisterRequest
 
 	// 1. Parse JSON
 	if err := c.ShouldBindJSON(&input); err != nil {
@@ -72,18 +77,24 @@ func Register(c *gin.Context) {
 		return
 	}
 
-	// 3. Create User Model
+	// 3. Determine the Role (Default to admin if none is provided)
+	assignedRole := "admin"
+	if input.Role != "" {
+		assignedRole = input.Role
+	}
+
+	// 4. Create User Model
 	user := models.User{
 		Username:     input.Username,
 		PasswordHash: string(hashedPassword),
-		Role:         "admin", // Defaulting to admin for now so you can test
+		Role:         assignedRole, // Saves "supervisor" or "admin" to the DB
 	}
 
-	// 4. Save to DB
+	// 5. Save to DB
 	if err := database.DB.Create(&user).Error; err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "User likely already exists"})
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"message": "User created successfully!"})
+	c.JSON(http.StatusCreated, gin.H{"message": "User created successfully!", "role": assignedRole})
 }
