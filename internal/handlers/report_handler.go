@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"strconv"
 	"time"
 
 	"go-pos-agent/internal/database"
@@ -30,7 +31,24 @@ func GetSalesReport(c *gin.Context) {
 	var data ReportData
 
 	// --- 1. DYNAMIC TIME & SEARCH FILTER LOGIC ---
-	timeframe := c.Query("timeframe")     // e.g., "today", "7days", "30days", "custom"
+	timeframe := c.Query("timeframe") // e.g., "today", "7days", "30days", "custom"
+
+	// --- NEW: Decoupled Dynamic Limits ---
+	salesLimitStr := c.Query("salesLimit")
+	salesLimit := 10
+	if salesLimitStr != "" {
+		if parsed, err := strconv.Atoi(salesLimitStr); err == nil && parsed > 0 {
+			salesLimit = parsed
+		}
+	}
+
+	voidsLimitStr := c.Query("voidsLimit")
+	voidsLimit := 10
+	if voidsLimitStr != "" {
+		if parsed, err := strconv.Atoi(voidsLimitStr); err == nil && parsed > 0 {
+			voidsLimit = parsed
+		}
+	}
 	customStart := c.Query("customStart") // e.g., "2026-03-07T11:00"
 	customEnd := c.Query("customEnd")     // e.g., "2026-03-07T17:00"
 	searchQuery := c.Query("search")      // NEW: Item-specific filter
@@ -150,7 +168,7 @@ func GetSalesReport(c *gin.Context) {
 	}
 
 	// --- 5. RECENT SALES & VOIDED (Filtered) ---
-	recentSalesQuery := database.DB.Preload("Items").Preload("Items.Product").Order("sale_time desc").Limit(10)
+	recentSalesQuery := database.DB.Preload("Items").Preload("Items.Product").Order("sale_time desc").Limit(salesLimit)
 
 	// --- UPGRADED: Inject Product Search & Category Filters (Subquery) ---
 	if searchQuery != "" || (categoryFilter != "" && categoryFilter != "All") {
@@ -172,7 +190,7 @@ func GetSalesReport(c *gin.Context) {
 	}
 	recentSalesQuery.Find(&data.RecentSales)
 
-	voidedQuery := database.DB.Order("timestamp desc").Limit(10)
+	voidedQuery := database.DB.Order("timestamp desc").Limit(voidsLimit)
 	if !startTime.IsZero() {
 		voidedQuery = voidedQuery.Where("timestamp >= ?", startTime)
 	}

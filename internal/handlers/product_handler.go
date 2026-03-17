@@ -404,7 +404,7 @@ func ExportWeighableProducts(c *gin.Context) {
 		f.SetCellValue("Sheet1", fmt.Sprintf("B%d", row), p.Name)   // Name
 		f.SetCellValue("Sheet1", fmt.Sprintf("C%d", row), hotkey)   // LFCode
 		f.SetCellValue("Sheet1", fmt.Sprintf("D%d", row), itemCode) // Code (SKU)
-		f.SetCellValue("Sheet1", fmt.Sprintf("E%d", row), 13)       // Barcode Type
+		f.SetCellValue("Sheet1", fmt.Sprintf("E%d", row), 2)        // Barcode Type
 		f.SetCellValue("Sheet1", fmt.Sprintf("F%d", row), p.Price)  // Unit Price
 		f.SetCellValue("Sheet1", fmt.Sprintf("G%d", row), "Kg")     // Unit Weight
 		f.SetCellValue("Sheet1", fmt.Sprintf("H%d", row), 0)        // Unit Amount
