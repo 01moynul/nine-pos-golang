@@ -140,6 +140,10 @@ type ShiftLog struct {
 	ActualClosingCash float64    `json:"actual_closing_cash"`
 	OverShortAmount   float64    `json:"over_short_amount"`
 
+	// --- NEW: Exact Denomination Breakdown (Stored as JSON string) ---
+	OpeningBreakdown string `json:"opening_breakdown"`
+	ClosingBreakdown string `json:"closing_breakdown"`
+
 	TotalCash float64 `json:"total_cash"`
 	CashCount int     `json:"cash_count"` // <-- NEW: Tracks number of cash sales
 	TotalQR   float64 `json:"total_qr"`

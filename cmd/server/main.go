@@ -93,9 +93,10 @@ func main() {
 		api.GET("/settings", handlers.GetStoreSettings)
 		api.GET("/shift/active", handlers.GetActiveShift)
 		api.GET("/shift/history", handlers.GetShiftHistory) // <--- ADD THIS NEW LINE
+		api.GET("/shift/:id/analytics", handlers.GetShiftAnalytics)
 		api.POST("/shift/unlock", handlers.UnlockRegister)
 		api.POST("/shift/open", handlers.OpenShift)
-		api.POST("/shift/close", handlers.CloseShift)
+		api.POST("/shift/close", handlers.CloseShift) // Analytics engine for a specific shift
 		// ------------------------------------------
 
 		{
