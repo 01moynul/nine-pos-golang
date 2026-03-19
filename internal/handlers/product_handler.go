@@ -130,8 +130,9 @@ func UpdateProduct(c *gin.Context) {
 // SaleRequest defines what the Frontend sends us
 type SaleRequest struct {
 	Items []struct {
-		ProductID int     `json:"product_id"`
-		Quantity  float64 `json:"quantity"` // UPGRADED: Float64 for weights
+		ProductID       int     `json:"product_id"`
+		Quantity        float64 `json:"quantity"`          // UPGRADED: Float64 for weights
+		IsEmptyExchange bool    `json:"is_empty_exchange"` // <-- NEW: Gas Engine Memory (Phase B)
 	} `json:"items"`
 	RequestEInvoice bool    `json:"request_einvoice"`
 	PaymentMethod   string  `json:"payment_method"`  // <-- NEW: Catch from React
@@ -169,6 +170,22 @@ func ProcessSale(c *gin.Context) {
 		if product.StockQuantity < item.Quantity {
 			tx.Rollback()
 			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Insufficient stock for %s", product.Name)})
+			return
+		}
+
+		// --- UPGRADED: Standard vs Gas Engine Math (Phase B) ---
+		// Always deduct the full product stock (because a full tank is leaving the store)
+		product.StockQuantity -= item.Quantity
+
+		// If this is a Gas Cylinder AND the customer returned an empty tank, increase our empty stock
+		if product.IsGas && item.IsEmptyExchange {
+			product.EmptyCylinderStock += item.Quantity
+		}
+		// -------------------------------------------------------
+
+		if err := tx.Save(&product).Error; err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update stock"})
 			return
 		}
 

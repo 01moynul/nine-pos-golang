@@ -13,21 +13,27 @@ type User struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
-// Product - The Inventory (Upgraded for Phase 1 & 3 & Scale Integration)
+// Product - The Inventory (Upgraded for Phase 1 & 3, Scale & Gas Integration)
 type Product struct {
-	ID              uint      `gorm:"primaryKey" json:"id"`
-	SKU             string    `gorm:"uniqueIndex;size:100" json:"sku"`
-	Name            string    `json:"name"`
-	Price           float64   `json:"price"`
-	CostPrice       float64   `json:"cost_price"`
-	Category        string    `json:"category"`
-	StockQuantity   float64   `json:"stock_quantity"` // UPGRADED: Float64 for KG/Grams
-	StockReserved   float64   `json:"stock_reserved"` // UPGRADED: Float64 for KG/Grams
-	IsSSTApplicable bool      `json:"is_sst_applicable"`
-	IsWeighable     bool      `json:"is_weighable"` // NEW: Scale Integration Flag
-	ImageURL        string    `json:"image_url"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
+	ID              uint    `gorm:"primaryKey" json:"id"`
+	SKU             string  `gorm:"uniqueIndex;size:100" json:"sku"`
+	Name            string  `json:"name"`
+	Price           float64 `json:"price"`
+	CostPrice       float64 `json:"cost_price"`
+	Category        string  `json:"category"`
+	StockQuantity   float64 `json:"stock_quantity"`
+	StockReserved   float64 `json:"stock_reserved"`
+	IsSSTApplicable bool    `json:"is_sst_applicable"`
+	IsWeighable     bool    `json:"is_weighable"`
+
+	// --- NEW: Gas Cylinder Engine Fields ---
+	IsGas              bool    `json:"is_gas"`               // Flag to trigger the "Empty Exchange" UI prompt
+	EmptyCylinderStock float64 `json:"empty_cylinder_stock"` // Tracks physical empty tanks returned by customers
+	// ---------------------------------------
+
+	ImageURL  string    `json:"image_url"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // StockLedger - Enterprise Audit Trail for Inventory Management
