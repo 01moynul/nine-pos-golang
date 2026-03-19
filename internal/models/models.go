@@ -125,7 +125,13 @@ type Expense struct {
 	Date        time.Time `json:"date"`
 	Description string    `json:"description"`
 	LoggedBy    string    `json:"logged_by"` // The username of the admin who recorded it
-	CreatedAt   time.Time `json:"created_at"`
+
+	// --- NEW: Till Payout & Security Fields ---
+	PaidFromTill     bool   `json:"paid_from_till"`     // True if physical cash was taken from the active POS drawer
+	ShiftID          *uint  `json:"shift_id"`           // Links the payout to the active shift so we can deduct expected cash (Pointer allows null if paid via bank)
+	SecurityVideoURL string `json:"security_video_url"` // Links the hardware camera footage of the drawer opening
+
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // ShiftLog - Tracks the morning cash box and daily shift totals (Till Management)

@@ -11,50 +11,67 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// CreateExpense logs a new operational cost
+// CreateExpense logs a new operational cost and handles Till Payouts
 func CreateExpense(c *gin.Context) {
 	var input struct {
 		ExpenseType string  `json:"expense_type"`
 		Amount      float64 `json:"amount"`
 		Date        string  `json:"date"` // Expecting YYYY-MM-DD
 		Description string  `json:"description"`
+
+		// --- NEW: Security & Till Fields ---
+		PaidFromTill     bool   `json:"paid_from_till"`
+		ShiftID          *uint  `json:"shift_id"`
+		SecurityVideoURL string `json:"security_video_url"`
 	}
 
+	// 1. Read the incoming JSON data from the frontend
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Parse the date in the LOCAL timezone so it matches the dashboard filters
+	// 2. Parse the date in the LOCAL timezone so it matches the dashboard filters
 	parsedDate, err := time.ParseInLocation("2006-01-02", input.Date, time.Now().Location())
 	if err != nil {
 		parsedDate = time.Now() // Fallback to today if parsing fails
 	}
 
-	// Safely get the user identifier from the JWT token (set by middleware)
+	// 3. Safely get the user identifier from the JWT token (set by middleware)
 	var loggedBy string
 	if userID, exists := c.Get("userID"); exists {
-		// Use fmt to safely convert whatever number format userID is into a string
 		loggedBy = fmt.Sprintf("User ID: %v", userID)
 	} else {
-		loggedBy = "Admin" // Safe fallback
+		loggedBy = "System"
 	}
 
+	// 4. Build the Expense object, mapping all the new Till Payout data
 	expense := models.Expense{
-		ExpenseType: input.ExpenseType,
-		Amount:      input.Amount,
-		Date:        parsedDate,
-		Description: input.Description,
-		LoggedBy:    loggedBy,
-		CreatedAt:   time.Now(),
+		ExpenseType:      input.ExpenseType,
+		Amount:           input.Amount,
+		Date:             parsedDate,
+		Description:      input.Description,
+		LoggedBy:         loggedBy,
+		PaidFromTill:     input.PaidFromTill,
+		ShiftID:          input.ShiftID,
+		SecurityVideoURL: input.SecurityVideoURL,
+		CreatedAt:        time.Now(),
 	}
 
+	// 5. Save the expense to the database
 	if err := database.DB.Create(&expense).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to log expense"})
 		return
 	}
 
-	c.JSON(http.StatusCreated, expense)
+	// 6. Return success.
+	// NOTE: By only returning a 201 Created AFTER a successful DB save,
+	// we guarantee the frontend will only kick the physical drawer open
+	// if the math is safely secured in our ledger.
+	c.JSON(http.StatusCreated, gin.H{
+		"message": "Expense logged successfully",
+		"expense": expense,
+	})
 }
 
 // ExpenseReport defines the shape of our new P&L response

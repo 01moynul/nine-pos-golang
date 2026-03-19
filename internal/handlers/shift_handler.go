@@ -225,9 +225,14 @@ func CloseShift(c *gin.Context) {
 	}
 
 	// 3. Core Till Math (Cleaned up!)
-	activeShift.ExpectedCash = activeShift.OpeningCash + activeShift.TotalCash
+	var tillPayouts float64
+	database.DB.Model(&models.Expense{}).
+		Where("shift_id = ? AND paid_from_till = ?", activeShift.ID, true).
+		Select("COALESCE(SUM(amount), 0)").Scan(&tillPayouts)
+
+	activeShift.ExpectedCash = activeShift.OpeningCash + activeShift.TotalCash - tillPayouts
 	activeShift.ActualClosingCash = req.ActualClosingCash
-	activeShift.ClosingBreakdown = req.ClosingBreakdown // <-- NEW: Save to DB
+	activeShift.ClosingBreakdown = req.ClosingBreakdown
 	activeShift.OverShortAmount = activeShift.ActualClosingCash - activeShift.ExpectedCash
 
 	// 4. Finalize timestamps and user
@@ -361,7 +366,12 @@ func GetShiftHistory(c *gin.Context) {
 			shifts[i].QRCount = liveQRCount // <-- NEW
 			shifts[i].TotalCard = liveCard
 			shifts[i].CardCount = liveCardCount // <-- NEW
-			shifts[i].ExpectedCash = shifts[i].OpeningCash + liveCash
+			var livePayouts float64
+			database.DB.Model(&models.Expense{}).
+				Where("shift_id = ? AND paid_from_till = ?", shifts[i].ID, true).
+				Select("COALESCE(SUM(amount), 0)").Scan(&livePayouts)
+
+			shifts[i].ExpectedCash = shifts[i].OpeningCash + liveCash - livePayouts
 		}
 	}
 	// ------------------------------------------------------------------------
@@ -372,12 +382,13 @@ func GetShiftHistory(c *gin.Context) {
 // --- NEW: SHIFT ANALYTICS ENGINE ---
 
 type ShiftAnalyticsResponse struct {
-	TotalRevenue  float64 `json:"total_revenue"`
-	TrueProfit    float64 `json:"true_profit"`
-	TotalOrders   int64   `json:"total_orders"`
-	AvgOrderValue float64 `json:"avg_order_value"`
-	VoidCount     int64   `json:"void_count"`
-	VoidValue     float64 `json:"void_value"`
+	TotalRevenue  float64          `json:"total_revenue"`
+	TrueProfit    float64          `json:"true_profit"`
+	TotalOrders   int64            `json:"total_orders"`
+	AvgOrderValue float64          `json:"avg_order_value"`
+	VoidCount     int64            `json:"void_count"`
+	VoidValue     float64          `json:"void_value"`
+	TillPayouts   []models.Expense `json:"till_payouts"` // <-- NEW: Fetch the payouts for the UI
 }
 
 // GetShiftAnalytics calculates KPIs strictly fenced to a specific shift's timeframe
@@ -432,7 +443,11 @@ func GetShiftAnalytics(c *gin.Context) {
 		Select("COALESCE(SUM(total_value_lost), 0)").
 		Scan(&voidValue)
 
-	// 5. Send the compiled KPIs back to React
+	// 5. Fetch Till Payouts
+	var payouts []models.Expense
+	database.DB.Where("shift_id = ? AND paid_from_till = ?", shift.ID, true).Find(&payouts)
+
+	// 6. Send the compiled KPIs back to React
 	c.JSON(http.StatusOK, ShiftAnalyticsResponse{
 		TotalRevenue:  totalRevenue,
 		TrueProfit:    trueProfit,
@@ -440,5 +455,6 @@ func GetShiftAnalytics(c *gin.Context) {
 		AvgOrderValue: avgOrderValue,
 		VoidCount:     voidCount,
 		VoidValue:     voidValue,
+		TillPayouts:   payouts, // <-- NEW
 	})
 }

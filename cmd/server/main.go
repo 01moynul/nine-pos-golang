@@ -88,6 +88,8 @@ func main() {
 		security := api.Group("/security")
 		// --- ADD THIS NEW LINE ---
 		api.POST("/printer/kick-drawer", handlers.KickDrawer)
+		// ADD THIS HERE: Allow cashiers to log Till Payouts
+		api.POST("/expenses", handlers.CreateExpense)
 
 		// --- NEW: TILL MANAGEMENT (Shift Logs) ---
 		api.GET("/settings", handlers.GetStoreSettings)
@@ -137,7 +139,6 @@ func main() {
 			admin.GET("/products/scale-export", handlers.ExportWeighableProducts)
 
 			// Shop Expenses Management
-			admin.POST("/expenses", handlers.CreateExpense)
 			admin.GET("/expenses", handlers.GetExpenses)
 			admin.DELETE("/expenses/:id", handlers.DeleteExpense)
 
