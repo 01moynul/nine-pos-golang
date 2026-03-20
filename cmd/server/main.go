@@ -91,6 +91,9 @@ func main() {
 		// ADD THIS HERE: Allow cashiers to log Till Payouts
 		api.POST("/expenses", handlers.CreateExpense)
 
+		// --- Task A3: Receipt Uploads ---
+		api.POST("/expenses/:id/receipt", handlers.UploadExpenseReceipt)
+
 		// --- NEW: TILL MANAGEMENT (Shift Logs) ---
 		api.GET("/settings", handlers.GetStoreSettings)
 		api.GET("/shift/active", handlers.GetActiveShift)
@@ -140,6 +143,7 @@ func main() {
 
 			// Shop Expenses Management
 			admin.GET("/expenses", handlers.GetExpenses)
+			admin.PUT("/expenses/:id", handlers.UpdateExpense) // <--- NEW: Task 2.2 (Edit Expense)
 			admin.DELETE("/expenses/:id", handlers.DeleteExpense)
 
 			// --- NEW: User Management Routes ---

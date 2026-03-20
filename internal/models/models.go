@@ -137,6 +137,10 @@ type Expense struct {
 	ShiftID          *uint  `json:"shift_id"`           // Links the payout to the active shift so we can deduct expected cash (Pointer allows null if paid via bank)
 	SecurityVideoURL string `json:"security_video_url"` // Links the hardware camera footage of the drawer opening
 
+	// --- NEW: Cloud Archiving (Task A3) ---
+	ReceiptImageURL string `json:"receipt_image_url"` // Publicly viewable link for the manager dashboard
+	DriveFileID     string `json:"drive_file_id"`     // The raw ID needed for the 365-day auto-delete cron job
+
 	CreatedAt time.Time `json:"created_at"`
 }
 

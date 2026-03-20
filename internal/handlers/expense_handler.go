@@ -1,14 +1,20 @@
 package handlers
 
 import (
+	"context"
 	"fmt"
+	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"time"
 
 	"go-pos-agent/internal/database"
 	"go-pos-agent/internal/models"
 
 	"github.com/gin-gonic/gin"
+	"google.golang.org/api/drive/v3"
+	"google.golang.org/api/option"
 )
 
 // CreateExpense logs a new operational cost and handles Till Payouts
@@ -150,6 +156,117 @@ func GetExpenses(c *gin.Context) {
 	c.JSON(http.StatusOK, data)
 }
 
+// --- Task 2.2: The "Edit & Replace" System (S1 & S2) ---
+func UpdateExpense(c *gin.Context) {
+	expenseID := c.Param("id")
+
+	// 1. Find the existing expense to get its current Drive ID
+	var existingExpense models.Expense
+	if err := database.DB.First(&existingExpense, expenseID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Expense not found"})
+		return
+	}
+
+	// 2. Parse the multipart form (handling BOTH text fields and an optional file)
+	if err := c.Request.ParseMultipartForm(10 << 20); err != nil { // 10 MB limit
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to parse form data"})
+		return
+	}
+
+	// 3. Extract the text fields
+	expenseType := c.PostForm("expense_type")
+	amountStr := c.PostForm("amount")
+	dateStr := c.PostForm("date")
+	description := c.PostForm("description")
+
+	var updatedAmount float64
+	if amountStr != "" {
+		fmt.Sscanf(amountStr, "%f", &updatedAmount)
+	}
+
+	parsedDate, err := time.ParseInLocation("2006-01-02", dateStr, time.Now().Location())
+	if err != nil {
+		parsedDate = existingExpense.Date // Fallback to existing date
+	}
+
+	// 4. Update the Database Record
+	database.DB.Model(&existingExpense).Updates(models.Expense{
+		ExpenseType: expenseType,
+		Amount:      updatedAmount,
+		Date:        parsedDate,
+		Description: description,
+	})
+
+	// 5. Handle the Strict "Replace & Archive" Image Upload (S2)
+	file, err := c.FormFile("receipt")
+	if err == nil {
+		// A new file WAS uploaded!
+		log.Printf("☁️ RECEIPTS: Edit detected for Expense #%s. Executing Strict Replace & Archive...", expenseID)
+
+		// 5a. Delete the old file from Google Drive if it exists
+		if existingExpense.DriveFileID != "" {
+			go deleteFromGoogleDrive(existingExpense.DriveFileID)
+		}
+
+		// 5b. Save the new file locally
+		tempDir := filepath.Join("C:\\NinePOS_Data", "temp_receipts")
+		os.MkdirAll(tempDir, os.ModePerm)
+		localFilePath := filepath.Join(tempDir, fmt.Sprintf("expense_edit_%s_%s", expenseID, file.Filename))
+
+		if err := c.SaveUploadedFile(file, localFilePath); err == nil {
+			// 5c. Trigger the background upload for the new file
+			go processReceiptUpload(expenseID, localFilePath)
+		} else {
+			log.Printf("❌ RECEIPT ERROR: Failed to save updated temporary image: %v", err)
+		}
+	}
+
+	// 6. S1: Write the change to the Audit Log
+	var loggedBy string
+	if userID, exists := c.Get("userID"); exists {
+		loggedBy = fmt.Sprintf("User ID: %v", userID)
+	} else {
+		loggedBy = "System"
+	}
+
+	auditEntry := models.AuditLog{
+		UserID:    0, // Replace with actual user ID if you extract it as an int
+		Action:    "EDIT_EXPENSE",
+		Details:   fmt.Sprintf("%s edited Expense #%s (New Amount: RM %.2f)", loggedBy, expenseID, updatedAmount),
+		Timestamp: time.Now(),
+	}
+	database.DB.Create(&auditEntry)
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Expense updated successfully",
+		"expense": existingExpense,
+	})
+}
+
+// Helper function to safely delete old files from Google Drive
+func deleteFromGoogleDrive(fileID string) {
+	log.Printf("☁️ RECEIPTS: Deleting old receipt image (ID: %s) from Google Drive...", fileID)
+
+	credPath := "credentials.json"
+	if _, err := os.Stat("cmd/server/credentials.json"); err == nil {
+		credPath = "cmd/server/credentials.json"
+	}
+
+	ctx := context.Background()
+	client, err := drive.NewService(ctx, option.WithCredentialsFile(credPath))
+	if err != nil {
+		log.Printf("❌ DRIVE DELETE ERROR: Auth failed: %v", err)
+		return
+	}
+
+	err = client.Files.Delete(fileID).SupportsAllDrives(true).Do()
+	if err != nil {
+		log.Printf("❌ DRIVE DELETE ERROR: Failed to delete file %s: %v", fileID, err)
+	} else {
+		log.Printf("✅ RECEIPTS: Old image successfully purged from Google Drive.")
+	}
+}
+
 // DeleteExpense removes an accidentally logged expense
 func DeleteExpense(c *gin.Context) {
 	id := c.Param("id")
@@ -160,4 +277,108 @@ func DeleteExpense(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Expense deleted successfully"})
+}
+
+// UploadExpenseReceipt receives the image from React and triggers the background cloud upload
+func UploadExpenseReceipt(c *gin.Context) {
+	expenseID := c.Param("id")
+
+	// 1. Get the image file from the multipart form data
+	file, err := c.FormFile("receipt")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No receipt file provided"})
+		return
+	}
+
+	// 2. Create a secure local temporary directory
+	tempDir := filepath.Join("C:\\NinePOS_Data", "temp_receipts")
+	os.MkdirAll(tempDir, os.ModePerm)
+
+	// Create a unique filename: expense_15_receipt.jpg
+	localFilePath := filepath.Join(tempDir, fmt.Sprintf("expense_%s_%s", expenseID, file.Filename))
+
+	// 3. Save the image locally first
+	if err := c.SaveUploadedFile(file, localFilePath); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save temporary receipt image"})
+		return
+	}
+
+	// 4. Hand off to the background worker so the Cashier's POS doesn't freeze
+	go processReceiptUpload(expenseID, localFilePath)
+
+	c.JSON(http.StatusOK, gin.H{"message": "Receipt upload started securely in the background"})
+}
+
+// processReceiptUpload handles the Google Drive API logic
+func processReceiptUpload(expenseID string, localFilePath string) {
+	log.Printf("☁️ RECEIPTS: Starting cloud upload for Expense #%s...\n", expenseID)
+
+	folderID := os.Getenv("RECEIPT_DRIVE_FOLDER_ID")
+	if folderID == "" {
+		log.Println("❌ RECEIPT ERROR: RECEIPT_DRIVE_FOLDER_ID is missing in .env")
+		return
+	}
+
+	// Dynamic credentials pathing (same as your Backup and Security engines)
+	credPath := "credentials.json"
+	if _, err := os.Stat("cmd/server/credentials.json"); err == nil {
+		credPath = "cmd/server/credentials.json"
+	}
+
+	ctx := context.Background()
+	client, err := drive.NewService(ctx, option.WithCredentialsFile(credPath))
+	if err != nil {
+		log.Printf("❌ RECEIPT ERROR: Google Drive auth failed: %v\n", err)
+		return
+	}
+
+	file, err := os.Open(localFilePath)
+	if err != nil {
+		log.Printf("❌ RECEIPT ERROR: Could not open local receipt file: %v\n", err)
+		return
+	}
+	defer file.Close()
+
+	cloudFileName := filepath.Base(localFilePath)
+	f := &drive.File{
+		Name:    cloudFileName,
+		Parents: []string{folderID},
+	}
+
+	// Upload to Shared Drive
+	uploadedFile, err := client.Files.Create(f).
+		Media(file).
+		SupportsAllDrives(true).
+		Fields("id, webContentLink").
+		Do()
+
+	if err != nil {
+		log.Printf("❌ RECEIPT ERROR: Google Drive upload failed: %v\n", err)
+		return
+	}
+
+	// Set permissions to allow the Manager Dashboard to display it
+	permission := &drive.Permission{
+		Type: "anyone",
+		Role: "reader",
+	}
+	_, err = client.Permissions.Create(uploadedFile.Id, permission).
+		SupportsAllDrives(true).
+		Do()
+
+	if err != nil {
+		log.Printf("⚠️ RECEIPT WARNING: Uploaded, but failed to set public permissions: %v\n", err)
+	}
+
+	// Update the Database with both the View Link and the Raw File ID (for our 365-day auto-delete script later)
+	database.DB.Model(&models.Expense{}).Where("id = ?", expenseID).Updates(map[string]interface{}{
+		"receipt_image_url": uploadedFile.WebContentLink,
+		"drive_file_id":     uploadedFile.Id,
+	})
+
+	log.Printf("✅ RECEIPT: Upload complete! Linked to Expense #%s. Deleting local file...\n", expenseID)
+
+	// Clean up local hard drive
+	file.Close()
+	os.Remove(localFilePath)
 }
