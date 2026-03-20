@@ -31,9 +31,8 @@ func GetSalesReport(c *gin.Context) {
 	var data ReportData
 
 	// --- 1. DYNAMIC TIME & SEARCH FILTER LOGIC ---
-	timeframe := c.Query("timeframe") // e.g., "today", "7days", "30days", "custom"
+	timeframe := c.Query("timeframe")
 
-	// --- NEW: Decoupled Dynamic Limits ---
 	salesLimitStr := c.Query("salesLimit")
 	salesLimit := 10
 	if salesLimitStr != "" {
@@ -49,21 +48,25 @@ func GetSalesReport(c *gin.Context) {
 			voidsLimit = parsed
 		}
 	}
-	customStart := c.Query("customStart") // e.g., "2026-03-07T11:00"
-	customEnd := c.Query("customEnd")     // e.g., "2026-03-07T17:00"
-	searchQuery := c.Query("search")      // NEW: Item-specific filter
-	categoryFilter := c.Query("category") // --- NEW: Category filter ---
+	customStart := c.Query("customStart")
+	customEnd := c.Query("customEnd")
+	searchQuery := c.Query("search")
+	categoryFilter := c.Query("category")
+
+	// --- NEW: Phase B & Payment Filters ---
+	productType := c.Query("productType")
+	paymentMethod := c.Query("paymentMethod") // e.g., "cash", "qr", "card", "laterpay"
 
 	now := time.Now()
 	var startTime time.Time
 	var endTime time.Time
 
 	if timeframe == "custom" && customStart != "" && customEnd != "" {
-		parsedStart, errStart := time.Parse("2006-01-02T15:04", customStart)
+		parsedStart, errStart := time.ParseInLocation("2006-01-02T15:04", customStart, now.Location())
 		if errStart == nil {
 			startTime = parsedStart
 		}
-		parsedEnd, errEnd := time.Parse("2006-01-02T15:04", customEnd)
+		parsedEnd, errEnd := time.ParseInLocation("2006-01-02T15:04", customEnd, now.Location())
 		if errEnd == nil {
 			endTime = parsedEnd
 		}
@@ -80,20 +83,34 @@ func GetSalesReport(c *gin.Context) {
 		}
 	}
 
+	// Helper boolean for product traits
+	needsProductJoin := searchQuery != "" || (categoryFilter != "" && categoryFilter != "All") || (productType != "" && productType != "All")
+
 	// --- 2. REVENUE & PROFIT (Filtered) ---
 	salesQuery := database.DB.Table("sale_items").
 		Joins("JOIN sales ON sale_items.sale_id = sales.id").
 		Where("sales.status = ?", "completed")
 
-	// --- UPGRADED: Inject Product Search & Category Filters ---
-	if searchQuery != "" || (categoryFilter != "" && categoryFilter != "All") {
+	// Apply Payment Method Filter
+	if paymentMethod != "" && paymentMethod != "All" {
+		salesQuery = salesQuery.Where("sales.payment_method = ?", paymentMethod)
+	}
+
+	if needsProductJoin {
 		salesQuery = salesQuery.Joins("JOIN products ON sale_items.product_id = products.id")
-	}
-	if searchQuery != "" {
-		salesQuery = salesQuery.Where("products.name LIKE ? OR products.sku LIKE ?", "%"+searchQuery+"%", "%"+searchQuery+"%")
-	}
-	if categoryFilter != "" && categoryFilter != "All" {
-		salesQuery = salesQuery.Where("products.category = ?", categoryFilter)
+		if searchQuery != "" {
+			salesQuery = salesQuery.Where("products.name LIKE ? OR products.sku LIKE ?", "%"+searchQuery+"%", "%"+searchQuery+"%")
+		}
+		if categoryFilter != "" && categoryFilter != "All" {
+			salesQuery = salesQuery.Where("products.category = ?", categoryFilter)
+		}
+		if productType == "Standard" {
+			salesQuery = salesQuery.Where("products.is_weighable = ? AND products.is_gas = ?", false, false)
+		} else if productType == "Weighable" {
+			salesQuery = salesQuery.Where("products.is_weighable = ?", true)
+		} else if productType == "Gas" {
+			salesQuery = salesQuery.Where("products.is_gas = ?", true)
+		}
 	}
 
 	if !startTime.IsZero() {
@@ -112,17 +129,28 @@ func GetSalesReport(c *gin.Context) {
 		return
 	}
 
-	// --- 3. TOTAL ORDERS (Filtered) ---
+	// --- 3. TOTAL ORDERS (Filtered via Subquery) ---
 	ordersQuery := database.DB.Model(&models.Sale{}).Where("status = ?", "completed")
 
-	// --- UPGRADED: Inject Product Search & Category Filters (Subquery) ---
-	if searchQuery != "" || (categoryFilter != "" && categoryFilter != "All") {
+	// Apply Payment Method Filter
+	if paymentMethod != "" && paymentMethod != "All" {
+		ordersQuery = ordersQuery.Where("payment_method = ?", paymentMethod)
+	}
+
+	if needsProductJoin {
 		subQuery := database.DB.Table("sale_items").Select("sale_items.sale_id").Joins("JOIN products ON sale_items.product_id = products.id")
 		if searchQuery != "" {
 			subQuery = subQuery.Where("products.name LIKE ? OR products.sku LIKE ?", "%"+searchQuery+"%", "%"+searchQuery+"%")
 		}
 		if categoryFilter != "" && categoryFilter != "All" {
 			subQuery = subQuery.Where("products.category = ?", categoryFilter)
+		}
+		if productType == "Standard" {
+			subQuery = subQuery.Where("products.is_weighable = ? AND products.is_gas = ?", false, false)
+		} else if productType == "Weighable" {
+			subQuery = subQuery.Where("products.is_weighable = ?", true)
+		} else if productType == "Gas" {
+			subQuery = subQuery.Where("products.is_gas = ?", true)
 		}
 		ordersQuery = ordersQuery.Where("id IN (?)", subQuery)
 	}
@@ -146,12 +174,23 @@ func GetSalesReport(c *gin.Context) {
 		Joins("JOIN sales ON sale_items.sale_id = sales.id").
 		Where("sales.status = ?", "completed")
 
-	// --- UPGRADED: Inject Product Search & Category Filters ---
+	// Apply Payment Method Filter
+	if paymentMethod != "" && paymentMethod != "All" {
+		topSellingQuery = topSellingQuery.Where("sales.payment_method = ?", paymentMethod)
+	}
+
 	if searchQuery != "" {
 		topSellingQuery = topSellingQuery.Where("products.name LIKE ? OR products.sku LIKE ?", "%"+searchQuery+"%", "%"+searchQuery+"%")
 	}
 	if categoryFilter != "" && categoryFilter != "All" {
 		topSellingQuery = topSellingQuery.Where("products.category = ?", categoryFilter)
+	}
+	if productType == "Standard" {
+		topSellingQuery = topSellingQuery.Where("products.is_weighable = ? AND products.is_gas = ?", false, false)
+	} else if productType == "Weighable" {
+		topSellingQuery = topSellingQuery.Where("products.is_weighable = ?", true)
+	} else if productType == "Gas" {
+		topSellingQuery = topSellingQuery.Where("products.is_gas = ?", true)
 	}
 
 	if !startTime.IsZero() {
@@ -167,17 +206,28 @@ func GetSalesReport(c *gin.Context) {
 		return
 	}
 
-	// --- 5. RECENT SALES & VOIDED (Filtered) ---
+	// --- 5. RECENT SALES & VOIDED (Filtered via Subquery) ---
 	recentSalesQuery := database.DB.Preload("Items").Preload("Items.Product").Order("sale_time desc").Limit(salesLimit)
 
-	// --- UPGRADED: Inject Product Search & Category Filters (Subquery) ---
-	if searchQuery != "" || (categoryFilter != "" && categoryFilter != "All") {
+	// Apply Payment Method Filter
+	if paymentMethod != "" && paymentMethod != "All" {
+		recentSalesQuery = recentSalesQuery.Where("payment_method = ?", paymentMethod)
+	}
+
+	if needsProductJoin {
 		subQuery := database.DB.Table("sale_items").Select("sale_items.sale_id").Joins("JOIN products ON sale_items.product_id = products.id")
 		if searchQuery != "" {
 			subQuery = subQuery.Where("products.name LIKE ? OR products.sku LIKE ?", "%"+searchQuery+"%", "%"+searchQuery+"%")
 		}
 		if categoryFilter != "" && categoryFilter != "All" {
 			subQuery = subQuery.Where("products.category = ?", categoryFilter)
+		}
+		if productType == "Standard" {
+			subQuery = subQuery.Where("products.is_weighable = ? AND products.is_gas = ?", false, false)
+		} else if productType == "Weighable" {
+			subQuery = subQuery.Where("products.is_weighable = ?", true)
+		} else if productType == "Gas" {
+			subQuery = subQuery.Where("products.is_gas = ?", true)
 		}
 		recentSalesQuery = recentSalesQuery.Where("id IN (?)", subQuery)
 	}
@@ -199,7 +249,6 @@ func GetSalesReport(c *gin.Context) {
 	}
 	voidedQuery.Find(&data.VoidedSales)
 
-	// Send data to frontend
 	c.JSON(http.StatusOK, data)
 }
 
