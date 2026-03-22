@@ -88,6 +88,7 @@ func main() {
 		security := api.Group("/security")
 		// --- ADD THIS NEW LINE ---
 		api.POST("/printer/kick-drawer", handlers.KickDrawer)
+		api.POST("/printer/open-drawer-secure", handlers.OpenDrawerSecurely) // <-- ADD THIS LINE
 		// ADD THIS HERE: Allow cashiers to log Till Payouts
 		api.POST("/expenses", handlers.CreateExpense)
 

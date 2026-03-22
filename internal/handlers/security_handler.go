@@ -269,7 +269,6 @@ func finalizeRecording(sessionID string, isSuccess bool, orderID uint, reasonOrR
 	uploadSessionID := sessionID
 
 	if isSuccess {
-		// --- NEW FIX: Extract the Expense ID if it exists ---
 		if strings.HasPrefix(reasonOrReceipt, "EXPENSE-") {
 			uploadSessionID = "expense_" + sessionID
 			idStr := strings.TrimPrefix(reasonOrReceipt, "EXPENSE-")
@@ -277,6 +276,13 @@ func finalizeRecording(sessionID string, isSuccess bool, orderID uint, reasonOrR
 				orderID = uint(parsedID)
 			}
 			database.DB.Model(&models.Expense{}).Where("id = ?", orderID).Update("security_video_url", "PENDING_UPLOAD_"+uploadSessionID)
+		} else if strings.HasPrefix(reasonOrReceipt, "DRAWER-") { // <--- ADD THIS BLOCK
+			uploadSessionID = "drawer_" + sessionID
+			idStr := strings.TrimPrefix(reasonOrReceipt, "DRAWER-")
+			if parsedID, err := strconv.Atoi(idStr); err == nil {
+				orderID = uint(parsedID)
+			}
+			database.DB.Model(&models.DrawerActivityLog{}).Where("id = ?", orderID).Update("security_video_url", "PENDING_UPLOAD_"+uploadSessionID)
 		} else {
 			// Normal Sale
 			database.DB.Model(&models.Sale{}).Where("id = ?", orderID).Update("security_video_url", "PENDING_UPLOAD_"+uploadSessionID)
@@ -362,8 +368,9 @@ func uploadSecurityVideo(sessionID string, localFilePath string, isSuccess bool,
 
 	if isSuccess {
 		if strings.HasPrefix(sessionID, "expense_") {
-			// --- NEW FIX: Route to the Expense Table ---
 			database.DB.Model(&models.Expense{}).Where("id = ?", orderID).Update("security_video_url", videoLink)
+		} else if strings.HasPrefix(sessionID, "drawer_") { // <--- ADD THIS BLOCK
+			database.DB.Model(&models.DrawerActivityLog{}).Where("id = ?", orderID).Update("security_video_url", videoLink)
 		} else {
 			// Normal Sale
 			database.DB.Model(&models.Sale{}).Where("id = ?", orderID).Update("security_video_url", videoLink)

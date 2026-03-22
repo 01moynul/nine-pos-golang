@@ -22,8 +22,9 @@ type ReportData struct {
 		Revenue     float64 `json:"revenue"`
 		Profit      float64 `json:"profit"`
 	} `json:"top_selling"`
-	RecentSales []models.Sale              `json:"recent_sales"`
-	VoidedSales []models.VoidedTransaction `json:"voided_sales"` // NEW: Task 2.4 Security Audits
+	RecentSales    []models.Sale              `json:"recent_sales"`
+	VoidedSales    []models.VoidedTransaction `json:"voided_sales"`    // NEW: Task 2.4 Security Audits
+	DrawerActivity []models.DrawerActivityLog `json:"drawer_activity"` // <-- ADD THIS LINE
 }
 
 // --- GET: /api/reports ---
@@ -48,6 +49,16 @@ func GetSalesReport(c *gin.Context) {
 			voidsLimit = parsed
 		}
 	}
+	// --- ADD THIS BLOCK: Pagination for Drawer Logs ---
+	drawerLimitStr := c.Query("drawerLimit")
+	drawerLimit := 10
+	if drawerLimitStr != "" {
+		if parsed, err := strconv.Atoi(drawerLimitStr); err == nil && parsed > 0 {
+			drawerLimit = parsed
+		}
+	}
+	// --------------------------------------------------
+
 	customStart := c.Query("customStart")
 	customEnd := c.Query("customEnd")
 	searchQuery := c.Query("search")
@@ -248,6 +259,17 @@ func GetSalesReport(c *gin.Context) {
 		voidedQuery = voidedQuery.Where("timestamp <= ?", endTime)
 	}
 	voidedQuery.Find(&data.VoidedSales)
+
+	// --- ADD THIS BLOCK: Fetch Drawer Activity ---
+	drawerQuery := database.DB.Order("timestamp desc").Limit(drawerLimit)
+	if !startTime.IsZero() {
+		drawerQuery = drawerQuery.Where("timestamp >= ?", startTime)
+	}
+	if !endTime.IsZero() {
+		drawerQuery = drawerQuery.Where("timestamp <= ?", endTime)
+	}
+	drawerQuery.Find(&data.DrawerActivity)
+	// ---------------------------------------------
 
 	c.JSON(http.StatusOK, data)
 }

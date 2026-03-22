@@ -179,3 +179,14 @@ type StoreSettings struct {
 	ID                  uint `gorm:"primaryKey" json:"id"`
 	EnableShiftTracking bool `json:"enable_shift_tracking"` // If false, the POS ignores all shift locks
 }
+
+// DrawerActivityLog - Tracks non-sale, manual openings of the physical cash drawer for security audits
+type DrawerActivityLog struct {
+	ID               uint      `gorm:"primaryKey" json:"id"`
+	StaffID          uint      `json:"staff_id"`           // The ID of the user who triggered the open
+	Username         string    `json:"username"`           // The username for fast rendering on the report dashboard
+	Reason           string    `json:"reason"`             // Why it was opened (e.g., "Making change", "Stuck coin")
+	Status           string    `json:"status"`             // Tracks if the flow was "Completed" or "Cancelled"
+	Timestamp        time.Time `json:"timestamp"`          // The exact moment the drawer kicked
+	SecurityVideoURL string    `json:"security_video_url"` // Links the camera footage to the audit
+}

@@ -71,6 +71,7 @@ func Connect() {
 		// --- NEW: Till Management Tables ---
 		&models.ShiftLog{},      // <--- ADD THIS LINE
 		&models.StoreSettings{}, // <--- ADD THIS LINE
+		&models.DrawerActivityLog{},
 	)
 	if err != nil {
 		log.Fatal("❌ Failed to migrate database:", err)
