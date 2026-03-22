@@ -98,7 +98,8 @@ func main() {
 		// --- NEW: TILL MANAGEMENT (Shift Logs) ---
 		api.GET("/settings", handlers.GetStoreSettings)
 		api.GET("/shift/active", handlers.GetActiveShift)
-		api.GET("/shift/history", handlers.GetShiftHistory) // <--- ADD THIS NEW LINE
+		api.GET("/shift/history", handlers.GetShiftHistory)        // <--- ADD THIS NEW LINE
+		api.GET("/shift/last-closed", handlers.GetLastClosedShift) // <-- ADD THIS HOT-SWAP ROUTE
 		api.GET("/shift/:id/analytics", handlers.GetShiftAnalytics)
 		api.POST("/shift/unlock", handlers.UnlockRegister)
 		api.POST("/shift/open", handlers.OpenShift)

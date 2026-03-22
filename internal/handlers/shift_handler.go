@@ -379,6 +379,24 @@ func GetShiftHistory(c *gin.Context) {
 	c.JSON(http.StatusOK, shifts)
 }
 
+// GetLastClosedShift fetches the absolute most recently closed shift.
+// This powers the "Load Previous Till Count" hot-swap feature for rapid shift changes.
+func GetLastClosedShift(c *gin.Context) {
+	var lastShift models.ShiftLog
+
+	// Query the database for a closed shift, ordered by the closing time descending (newest first)
+	err := database.DB.Where("status = ?", "closed").Order("closed_at desc").First(&lastShift).Error
+
+	if err != nil {
+		// A 404 simply means this is the very first time the system is being used, or no shifts exist.
+		c.JSON(http.StatusNotFound, gin.H{"error": "No previously closed shift found."})
+		return
+	}
+
+	// Return the shift data (which includes ActualClosingCash and ClosingBreakdown JSON)
+	c.JSON(http.StatusOK, lastShift)
+}
+
 // --- NEW: SHIFT ANALYTICS ENGINE ---
 
 type ShiftAnalyticsResponse struct {
